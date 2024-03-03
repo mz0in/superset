@@ -102,7 +102,7 @@
       "), and they become available in your SQL (example:": [
         "), und sie werden in Ihrem SQL verfügbar (Beispiel:"
       ],
-      "*%(name)s*\n\n%(description)s\n\n<%(url)s|Explore in Superset>\n\n%(table)s\n": [
+      "*%(name)s*\n\n%(description)s\n\n<%(url)s|Explore in ZReport>\n\n%(table)s\n": [
         "*%(name)s*\n\n%(description)s\n\n<%(url)s|In Superset erkunden>\n%(table)s\n"
       ],
       "*%(name)s*\n\n%(description)s\n\nError: %(text)s\n": [

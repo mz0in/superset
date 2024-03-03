@@ -77,8 +77,8 @@
       "), and they become available in your SQL (example:": [
         "), et ils deviennent disponibles dans votre SQL (exemple :"
       ],
-      "*%(name)s*\n\n%(description)s\n\n<%(url)s|Explore in Superset>\n\n%(table)s\n": [
-        "*%(name)s*%(description)s<%(url)s|Explore in Superset>%(table)s"
+      "*%(name)s*\n\n%(description)s\n\n<%(url)s|Explore in ZReport>\n\n%(table)s\n": [
+        "*%(name)s*%(description)s<%(url)s|Explore in ZReport>%(table)s"
       ],
       "*%(name)s*\n\n%(description)s\n\nError: %(text)s\n": [
         "*%(name)s*%(description)sErreur : %(text)s"

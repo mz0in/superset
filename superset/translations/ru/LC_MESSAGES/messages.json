@@ -89,7 +89,7 @@
       "), and they become available in your SQL (example:": [
         "), и они станут доступны в ваших SQL запросах (пример:"
       ],
-      "*%(name)s*\n\n%(description)s\n\n<%(url)s|Explore in Superset>\n\n%(table)s\n": [
+      "*%(name)s*\n\n%(description)s\n\n<%(url)s|Explore in ZReport>\n\n%(table)s\n": [
         "*%(name)s*\n\n%(description)s\n\n<%(url)s|Исследовать в Суперсете>\n\n%(table)s\n"
       ],
       "*%(name)s*\n\n%(description)s\n\nError: %(text)s\n": [
