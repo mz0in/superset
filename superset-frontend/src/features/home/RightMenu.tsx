@@ -489,7 +489,7 @@ const RightMenu = ({
               <div className="about-section">
                 {navbarRight.show_watermark && (
                   <div css={versionInfoStyles}>
-                    {t('Powered by Zain Dev')}
+                    {t('Zain Analytics')}
                   </div>
                 )}
                 {navbarRight.version_string && (
