@@ -21,4 +21,4 @@
 *Result*: {{observation_value}}
 *Reason*: {{validation_error_message}}
 <{{alert_url}}|View Alert Details>
-<{{url}}|*View The Dashboard Report*>
+<{{url}}|*View Dashboard Details *>
