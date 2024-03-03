@@ -494,7 +494,7 @@ const RightMenu = ({
                 )}
                 {navbarRight.version_string && (
                   <div css={versionInfoStyles}>
-                    {t('Version')}: {navbarRight.version_string}
+                    {t('Business Intelligence Dashboards')}
                   </div>
                 )}
                 {navbarRight.version_sha && (
