@@ -489,12 +489,12 @@ const RightMenu = ({
               <div className="about-section">
                 {navbarRight.show_watermark && (
                   <div css={versionInfoStyles}>
-                    {t('Powered by Apache Superset')}
+                    {t('Zain Analytics')}
                   </div>
                 )}
                 {navbarRight.version_string && (
                   <div css={versionInfoStyles}>
-                    {t('Version')}: {navbarRight.version_string}
+                    {t('Business Intelligence')}
                   </div>
                 )}
                 {navbarRight.version_sha && (

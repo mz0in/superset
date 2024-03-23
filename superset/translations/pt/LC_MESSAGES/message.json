@@ -590,19 +590,19 @@
       "An error occurred while pruning logs ": [
         "Ocorreu um erro ao renderizar a visualização: %s"
       ],
-      "\n            <b><a href=\"%(url)s\">Explore in Superset</a></b><p></p>\n            <img src=\"cid:%(msgid)s\">\n            ": [
+      "\n            <b><a href=\"%(url)s\">Explore in ZReport</a></b><p></p>\n            <img src=\"cid:%(msgid)s\">\n            ": [
         ""
       ],
       "%(prefix)s %(title)s": [""],
-      "\n            *%(name)s*\n\n            <%(url)s|Explore in Superset>\n            ": [
+      "\n            *%(name)s*\n\n            <%(url)s|Explore in ZReport>\n            ": [
         ""
       ],
-      "\n        *%(name)s*\n\n        <%(url)s|Explore in Superset>\n        ": [
+      "\n        *%(name)s*\n\n        <%(url)s|Explore in ZReport>\n        ": [
         ""
       ],
-      "<b><a href=\"%(url)s\">Explore in Superset</a></b><p></p>": [""],
+      "<b><a href=\"%(url)s\">Explore in ZReport</a></b><p></p>": [""],
       "%(name)s.csv": [""],
-      "\n        *%(slice_name)s*\n\n        <%(slice_url_user_friendly)s|Explore in Superset>\n        ": [
+      "\n        *%(slice_name)s*\n\n        <%(slice_url_user_friendly)s|Explore in ZReport>\n        ": [
         ""
       ],
       "[Alert] %(label)s": ["Etiquetas de marcadores"],

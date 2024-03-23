@@ -103,7 +103,7 @@
       "), and they become available in your SQL (example:": [
         "), s čimer bodo na razpolago v sklopu SQL-poizvedbe (primer:"
       ],
-      "*%(name)s*\n\n%(description)s\n\n<%(url)s|Explore in Superset>\n\n%(table)s\n": [
+      "*%(name)s*\n\n%(description)s\n\n<%(url)s|Explore in ZReport>\n\n%(table)s\n": [
         "*%(name)s*\n\n%(description)s\n\n<%(url)s|Razišči v Supersetu>\n\n%(table)s\n"
       ],
       "*%(name)s*\n\n%(description)s\n\nError: %(text)s\n": [

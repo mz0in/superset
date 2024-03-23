@@ -68,7 +68,7 @@
       "(deleted or invalid type)": [""],
       "(no description, click to see stack trace)": [""],
       "), and they become available in your SQL (example:": [""],
-      "*%(name)s*\n\n%(description)s\n\n<%(url)s|Explore in Superset>\n\n%(table)s\n": [
+      "*%(name)s*\n\n%(description)s\n\n<%(url)s|Explore in ZReport>\n\n%(table)s\n": [
         ""
       ],
       "*%(name)s*\n\n%(description)s\n\nError: %(text)s\n": [""],
