@@ -7,7 +7,7 @@
 #
 -e file:.
     # via -r requirements/base.in
-alembic==1.6.5
+alembic==1.13.1
     # via flask-migrate
 amqp==5.1.1
     # via kombu
@@ -164,6 +164,7 @@ importlib-metadata==6.6.0
     # via
     #   apache-superset
     #   flask
+    #   markdown
     #   shillelagh
 importlib-resources==5.12.0
     # via limits
@@ -191,7 +192,7 @@ mako==1.2.4
     # via
     #   alembic
     #   apache-superset
-markdown==3.3.4
+markdown==3.6
     # via apache-superset
 markdown-it-py==2.2.0
     # via rich
@@ -281,7 +282,6 @@ pyrsistent==0.20.0
     # via jsonschema
 python-dateutil==2.8.2
     # via
-    #   alembic
     #   apache-superset
     #   celery
     #   croniter
@@ -291,8 +291,6 @@ python-dateutil==2.8.2
     #   shillelagh
 python-dotenv==0.19.0
     # via apache-superset
-python-editor==1.0.4
-    # via alembic
 python-geohash==0.8.5
     # via apache-superset
 pytz==2021.3
@@ -357,6 +355,7 @@ tabulate==0.8.9
     # via apache-superset
 typing-extensions==4.4.0
     # via
+    #   alembic
     #   apache-superset
     #   cattrs
     #   flask-limiter
