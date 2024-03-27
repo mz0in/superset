@@ -84,7 +84,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip \
     pip install --upgrade setuptools pip && \
     pip install -r requirements/base.txt \
-    pip install Pillow psycopg2-binary ## this is by zain to fix issue not working 
+    pip install Pillow psycopg2-binary gevent ## this is by zain to fix issue not working 
 
 COPY --chown=superset:superset --from=superset-node /app/superset/static/assets superset/static/assets
 ## Lastly, let's install superset itself
