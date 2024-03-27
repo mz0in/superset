@@ -111,7 +111,6 @@ RUN apt-get update -qq \
 # Cache everything for dev purposes...
 
 COPY --chown=superset:superset requirements/development.txt requirements/
-RUN pip install psycopg2-binary
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -r requirements/development.txt
 
