@@ -360,10 +360,10 @@ msgid ""
 "\n"
 "%(description)s\n"
 "\n"
-"<%(url)s|Explore in Superset>\n"
+"<%(url)s|Explore in ZReport>\n"
 "\n"
 "%(table)s\n"
-msgstr "*%(name)s*%(description)s<%(url)s|Explore in Superset>%(table)s"
+msgstr "*%(name)s*%(description)s<%(url)s|Explore in ZReport>%(table)s"
 
 #: superset/reports/notifications/slack.py:93
 #, python-format
