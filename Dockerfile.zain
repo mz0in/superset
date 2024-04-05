@@ -11,7 +11,7 @@
 ARG PY_VER=3.11-slim-bookworm
 # if BUILDPLATFORM is null, set it to 'amd64' (or leave as is otherwise).
 ARG BUILDPLATFORM=${BUILDPLATFORM:-amd64}
-FROM --platform=${BUILDPLATFORM} node:21-bookworm-slim AS superset-node
+FROM --platform=${BUILDPLATFORM} node:21-bullseye-slim AS superset-node
 
 ARG NPM_BUILD_CMD="build"
 
@@ -41,6 +41,7 @@ RUN npm run ${BUILD_CMD}
 ######################################################################
 FROM python:${PY_VER} AS lean
 
+
 WORKDIR /app
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
@@ -65,15 +66,17 @@ RUN mkdir -p ${PYTHONPATH} superset/static requirements superset-frontend apache
     && chown -R superset:superset ./* \
     && rm -rf /var/lib/apt/lists/*
 
+
 COPY --chown=superset:superset setup.py MANIFEST.in README.md ./
 # setup.py uses the version information in package.json
 COPY --chown=superset:superset superset-frontend/package.json superset-frontend/
 COPY --chown=superset:superset requirements/base.txt requirements/
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --upgrade pip \
-    pip install --upgrade setuptools pip && \
+    pip install --upgrade pip && \
+    pip install uv && \
     pip install -r requirements/base.txt \
-    pip install Pillow psycopg2-binary gevent ## this is by zain to fix issue not working 
+    uv pip install setuptools Pillow psycopg2-binary gevent ## this is by zain to fix issue not working
+
 
 COPY --chown=superset:superset --from=superset-node /app/superset/static/assets superset/static/assets
 ## Lastly, let's install superset itself
@@ -96,7 +99,7 @@ CMD ["/usr/bin/run-server.sh"]
 # Dev image...
 ######################################################################
 FROM lean AS dev
-ARG GECKODRIVER_VERSION=v0.29.0 \
+ARG GECKODRIVER_VERSION=v0.33.0 \
     FIREFOX_VERSION=117.0.1
 
 USER root
@@ -110,6 +113,7 @@ RUN apt-get update -qq \
         libasound2 \
         libxtst6 \
         wget \
+        pkg-config \
     # Install GeckoDriver WebDriver
     && wget -q https://github.com/mozilla/geckodriver/releases/download/${GECKODRIVER_VERSION}/geckodriver-${GECKODRIVER_VERSION}-linux64.tar.gz -O - | tar xfz - -C /usr/local/bin \
     # Install Firefox
@@ -119,9 +123,8 @@ RUN apt-get update -qq \
 # Cache everything for dev purposes...
 
 COPY --chown=superset:superset requirements/development.txt requirements/
-RUN pip install psycopg2-binary
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r requirements/development.txt
+    uv pip install -r requirements/development.txt
 
 USER superset
 ######################################################################
