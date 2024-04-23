@@ -95,7 +95,7 @@
       "), and they become available in your SQL (example:": [
         "), 他们在你的SQL中会变成有效数据 (比如:"
       ],
-      "*%(name)s*\n\n%(description)s\n\n<%(url)s|Explore in Superset>\n\n%(table)s\n": [
+      "*%(name)s*\n\n%(description)s\n\n<%(url)s|Explore in ZainDash>\n\n%(table)s\n": [
         ""
       ],
       "*%(name)s*\n\n%(description)s\n\nError: %(text)s\n": [""],
