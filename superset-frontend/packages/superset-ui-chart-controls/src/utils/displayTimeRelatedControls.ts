@@ -16,23 +16,25 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+import { isAdhocColumn, isPhysicalColumn } from '@superset-ui/core';
+import type { ColumnMeta, ControlPanelsContainerProps } from '../types';
 
-import dashboardStateReducer from './dashboardState';
-import { setActiveTab } from '../actions/dashboardState';
+export default function displayTimeRelatedControls({
+  controls,
+}: ControlPanelsContainerProps) {
+  if (!controls?.x_axis) {
+    return true;
+  }
 
-describe('DashboardState reducer', () => {
-  it('SET_ACTIVE_TAB', () => {
-    expect(
-      dashboardStateReducer({ activeTabs: [] }, setActiveTab('tab1')),
-    ).toEqual({ activeTabs: ['tab1'] });
-    expect(
-      dashboardStateReducer({ activeTabs: ['tab1'] }, setActiveTab('tab1')),
-    ).toEqual({ activeTabs: ['tab1'] });
-    expect(
-      dashboardStateReducer(
-        { activeTabs: ['tab1'] },
-        setActiveTab('tab2', 'tab1'),
-      ),
-    ).toEqual({ activeTabs: ['tab2'] });
-  });
-});
+  const xAxis = controls?.x_axis;
+  const xAxisValue = xAxis?.value;
+  if (isAdhocColumn(xAxisValue)) {
+    return true;
+  }
+  if (isPhysicalColumn(xAxisValue)) {
+    return !!(xAxis?.options ?? []).find(
+      (col: ColumnMeta) => col?.column_name === xAxisValue,
+    )?.is_dttm;
+  }
+  return false;
+}
