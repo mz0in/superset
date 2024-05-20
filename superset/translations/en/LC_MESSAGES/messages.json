@@ -684,7 +684,7 @@
       "%(name)s.csv": [""],
       "%(name)s.pdf": [""],
       "%(prefix)s %(title)s": [""],
-      "*%(name)s*\n\n%(description)s\n\n<%(url)s|Explore in Superset>\n\n%(table)s\n": [
+      "*%(name)s*\n\n%(description)s\n\n<%(url)s|Explore in ZenData>\n\n%(table)s\n": [
         ""
       ],
       "*%(name)s*\n\n%(description)s\n\nError: %(text)s\n": [""],
