@@ -73,7 +73,7 @@ def test_send_slack(
 
 <p>This is <a href="#">a test</a> alert</p><br />
 
-<None|Explore in Superset>
+<None|Explore in ZenData>
 
 ```
 |    |   A |   B | C                                        |
