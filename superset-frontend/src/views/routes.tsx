@@ -140,7 +140,7 @@ export const routes: Routes = [
     Component: DashboardList,
   },
   {
-    path: '/superset/dashboard/:idOrSlug/',
+    path: '/zaindash/dashboard/:idOrSlug/',
     Component: Dashboard,
   },
   {

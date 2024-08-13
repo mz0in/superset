@@ -840,7 +840,7 @@ class Superset(BaseSupersetView):
         if not value:
             return json_error_response(_("permalink state not found"), status=404)
         dashboard_id, state = value["dashboardId"], value.get("state", {})
-        url = f"/superset/dashboard/{dashboard_id}?permalink_key={key}"
+        url = f"/zaindash/dashboard/{dashboard_id}?permalink_key={key}"
         if url_params := state.get("urlParams"):
             params = parse.urlencode(url_params)
             url = f"{url}&{params}"
@@ -893,7 +893,7 @@ class Superset(BaseSupersetView):
         """Personalized welcome page"""
         if not g.user or not get_user_id():
             if conf["PUBLIC_ROLE_LIKE"]:
-                return self.render_template("superset/public_welcome.html")
+                return self.render_template("zaindash/public_welcome.html")
             return redirect(appbuilder.get_url_for_login)
 
         if welcome_dashboard_id := (

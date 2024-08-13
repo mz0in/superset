@@ -148,7 +148,7 @@ class TestDashboard(SupersetTestCase):
         self.assertNotIn("birth_names", resp)
 
         resp = self.get_resp("/api/v1/dashboard/")
-        self.assertNotIn("/superset/dashboard/births/", resp)
+        self.assertNotIn("/zaindash/dashboard/births/", resp)
 
         self.grant_public_access_to_table(table)
 
@@ -156,14 +156,14 @@ class TestDashboard(SupersetTestCase):
         self.assertIn("birth_names", self.get_resp("/api/v1/chart/"))
 
         resp = self.get_resp("/api/v1/dashboard/")
-        self.assertIn("/superset/dashboard/births/", resp)
+        self.assertIn("/zaindash/dashboard/births/", resp)
 
         # Confirm that public doesn't have access to other datasets.
         resp = self.get_resp("/api/v1/chart/")
         self.assertNotIn("wb_health_population", resp)
 
         resp = self.get_resp("/api/v1/dashboard/")
-        self.assertNotIn("/superset/dashboard/world_health/", resp)
+        self.assertNotIn("/zaindash/dashboard/world_health/", resp)
 
         # Cleanup
         self.revoke_public_access_to_table(table)
@@ -180,7 +180,7 @@ class TestDashboard(SupersetTestCase):
         dash.created_by = security_manager.find_user("admin")
         db.session.commit()
 
-        res: Response = self.client.get("/superset/dashboard/births/")
+        res: Response = self.client.get("/zaindash/dashboard/births/")
         assert res.status_code == 200
 
         # Cleanup
@@ -194,8 +194,8 @@ class TestDashboard(SupersetTestCase):
     def test_users_can_list_published_dashboard(self):
         self.login(ALPHA_USERNAME)
         resp = self.get_resp("/api/v1/dashboard/")
-        assert f"/superset/dashboard/{pytest.hidden_dash_slug}/" not in resp
-        assert f"/superset/dashboard/{pytest.published_dash_slug}/" in resp
+        assert f"/zaindash/dashboard/{pytest.hidden_dash_slug}/" not in resp
+        assert f"/zaindash/dashboard/{pytest.published_dash_slug}/" in resp
 
     def test_users_can_view_own_dashboard(self):
         user = security_manager.find_user("gamma")
@@ -224,8 +224,8 @@ class TestDashboard(SupersetTestCase):
         db.session.delete(hidden_dash)
         db.session.commit()
 
-        self.assertIn(f"/superset/dashboard/{my_dash_slug}/", resp)
-        self.assertNotIn(f"/superset/dashboard/{not_my_dash_slug}/", resp)
+        self.assertIn(f"/zaindash/dashboard/{my_dash_slug}/", resp)
+        self.assertNotIn(f"/zaindash/dashboard/{not_my_dash_slug}/", resp)
 
     def test_user_can_not_view_unpublished_dash(self):
         admin_user = security_manager.find_user("admin")
@@ -247,7 +247,7 @@ class TestDashboard(SupersetTestCase):
         db.session.delete(dash)
         db.session.commit()
 
-        self.assertNotIn(f"/superset/dashboard/{slug}/", resp)
+        self.assertNotIn(f"/zaindash/dashboard/{slug}/", resp)
 
 
 if __name__ == "__main__":

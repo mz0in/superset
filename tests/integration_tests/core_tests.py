@@ -126,7 +126,7 @@ class TestCore(SupersetTestCase):
 
     def test_dashboard_endpoint(self):
         self.login(ADMIN_USERNAME)
-        resp = self.client.get("/superset/dashboard/-1/")
+        resp = self.client.get("/zaindash/dashboard/-1/")
         assert resp.status_code == 404
 
     @pytest.mark.usefixtures("load_birth_names_dashboard_with_slices")
@@ -955,7 +955,7 @@ class TestCore(SupersetTestCase):
         tbl_id = self.table_ids.get("wb_health_population")
         urls = [
             "/zaindash/welcome",
-            f"/superset/dashboard/{dash_id}/",
+            f"/zaindash/dashboard/{dash_id}/",
             f"/explore/?datasource_type=table&datasource_id={tbl_id}",
         ]
         for url in urls:
@@ -1172,7 +1172,7 @@ class TestCore(SupersetTestCase):
         exception = SupersetException("Error message")
         mock_db_connection_mutator.side_effect = exception
         dash = db.session.query(Dashboard).first()
-        url = f"/superset/dashboard/{dash.id}/"
+        url = f"/zaindash/dashboard/{dash.id}/"
 
         self.login(ADMIN_USERNAME)
         data = self.get_resp(url)
@@ -1182,7 +1182,7 @@ class TestCore(SupersetTestCase):
         exception = SQLAlchemyError("Error message")
         mock_db_connection_mutator.side_effect = exception
         dash = db.session.query(Dashboard).first()
-        url = f"/superset/dashboard/{dash.id}/"
+        url = f"/zaindash/dashboard/{dash.id}/"
 
         self.login(ADMIN_USERNAME)
         data = self.get_resp(url)
@@ -1221,7 +1221,7 @@ class TestCore(SupersetTestCase):
         self.login(ADMIN_USERNAME)
         resp = self.client.get("superset/dashboard/p/123/")
 
-        expected_url = "/superset/dashboard/1?permalink_key=123&standalone=3"
+        expected_url = "/zaindash/dashboard/1?permalink_key=123&standalone=3"
 
         self.assertEqual(resp.headers["Location"], expected_url)
         assert resp.status_code == 302
