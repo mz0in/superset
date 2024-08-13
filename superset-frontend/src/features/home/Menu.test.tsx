@@ -108,7 +108,7 @@ const mockedProps = {
         name: 'Home',
         icon: '',
         label: 'Home',
-        url: '/superset/welcome',
+        url: '/zaindash/welcome',
         index: 1,
       },
       {
@@ -170,7 +170,7 @@ const mockedProps = {
       },
     ],
     brand: {
-      path: '/superset/welcome/',
+      path: '/zaindash/welcome/',
       icon: '/static/assets/images/superset-logo-horiz.png',
       alt: 'Superset',
       width: '126',
