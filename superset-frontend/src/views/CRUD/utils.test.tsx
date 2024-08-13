@@ -48,7 +48,7 @@ const terminalErrors = {
           {
             code: 1010,
             message:
-              'Issue 1010 - Superset encountered an error while running a command.',
+              'Issue 1010 - ZainDash encountered an error while running a command.',
           },
         ],
       },
@@ -67,7 +67,7 @@ const terminalErrorsWithOnlyIssuesCode = {
           {
             code: 1010,
             message:
-              'Issue 1010 - Superset encountered an error while running a command.',
+              'Issue 1010 - ZainDash encountered an error while running a command.',
           },
         ],
       },
@@ -88,7 +88,7 @@ const overwriteNeededErrors = {
           {
             code: 1010,
             message:
-              'Issue 1010 - Superset encountered an error while running a command.',
+              'Issue 1010 - ZainDash encountered an error while running a command.',
           },
         ],
       },
@@ -110,7 +110,7 @@ const passwordNeededErrors = {
           {
             code: 1010,
             message:
-              'Issue 1010 - Superset encountered an error while running a command.',
+              'Issue 1010 - ZainDash encountered an error while running a command.',
           },
         ],
       },
@@ -132,7 +132,7 @@ const sshTunnelPasswordNeededErrors = {
           {
             code: 1010,
             message:
-              'Issue 1010 - Superset encountered an error while running a command.',
+              'Issue 1010 - ZainDash encountered an error while running a command.',
           },
         ],
       },
@@ -154,7 +154,7 @@ const sshTunnelPrivateKeyNeededErrors = {
           {
             code: 1010,
             message:
-              'Issue 1010 - Superset encountered an error while running a command.',
+              'Issue 1010 - ZainDash encountered an error while running a command.',
           },
         ],
       },
@@ -176,7 +176,7 @@ const sshTunnelPrivateKeyPasswordNeededErrors = {
           {
             code: 1010,
             message:
-              'Issue 1010 - Superset encountered an error while running a command.',
+              'Issue 1010 - ZainDash encountered an error while running a command.',
           },
         ],
       },
@@ -356,7 +356,7 @@ test('does not ask for password when the import type is wrong', () => {
             {
               code: 1010,
               message:
-                'Issue 1010 - Superset encountered an error while running a command.',
+                'Issue 1010 - ZainDash encountered an error while running a command.',
             },
           ],
         },
