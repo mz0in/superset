@@ -2069,7 +2069,7 @@ class TestDatasetApi(SupersetTestCase):
                         "issue_codes": [
                             {
                                 "code": 1010,
-                                "message": "Issue 1010 - Superset encountered an error while running a command.",
+                                "message": "Issue 1010 - ZainDash encountered an error while running a command.",
                             }
                         ],
                     },
@@ -2141,7 +2141,7 @@ class TestDatasetApi(SupersetTestCase):
                             {
                                 "code": 1010,
                                 "message": (
-                                    "Issue 1010 - Superset encountered "
+                                    "Issue 1010 - ZainDash encountered "
                                     "an error while running a command."
                                 ),
                             }
@@ -2188,7 +2188,7 @@ class TestDatasetApi(SupersetTestCase):
                         "issue_codes": [
                             {
                                 "code": 1010,
-                                "message": "Issue 1010 - Superset encountered an error while running a command.",
+                                "message": "Issue 1010 - ZainDash encountered an error while running a command.",
                             }
                         ]
                     },

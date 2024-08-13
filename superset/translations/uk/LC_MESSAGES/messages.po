@@ -10440,10 +10440,10 @@ msgstr "Суперсетна діаграма"
 msgid "Superset dashboard"
 msgstr "Інформаційна панель суперсетів"
 
-msgid "Superset encountered an error while running a command."
+msgid "ZainDash encountered an error while running a command."
 msgstr "Суперсет зіткнувся з помилкою під час запуску команди."
 
-msgid "Superset encountered an unexpected error."
+msgid "ZainDash encountered an unexpected error."
 msgstr "Суперсет зіткнувся з несподіваною помилкою."
 
 msgid "Supported databases"
