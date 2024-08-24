@@ -71,6 +71,7 @@ RUN mkdir -p ${PYTHONPATH} superset/static requirements superset-frontend apache
         libpq-dev \
         libecpg-dev \
         libldap2-dev \
+        gcc python3-dev libmariadb-dev pkg-config \ ## this for mysqlclient to build and install using pip later 
     && touch superset/static/version_info.json \
     && chown -R superset:superset ./* \
     && rm -rf /var/lib/apt/lists/*
@@ -83,7 +84,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     apt-get update -qq && apt-get install -yqq --no-install-recommends \
       build-essential \
     && pip install --upgrade pip  
-RUN pip install setuptools openpyxl psycopg2  \
+RUN pip install setuptools openpyxl psycopg2 mysqlclient \
     && pip install -r requirements/base.txt \
     && apt-get autoremove -yqq --purge build-essential \
     && rm -rf /var/lib/apt/lists/*
