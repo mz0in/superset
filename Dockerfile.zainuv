@@ -71,6 +71,7 @@ RUN mkdir -p ${PYTHONPATH} superset/static requirements superset-frontend apache
         libpq-dev \
         libecpg-dev \
         libldap2-dev \
+        gcc python3-dev libmariadb-dev pkg-config \ ## this for mysqlclient to build and install using pip later 
     && touch superset/static/version_info.json \
     && chown -R superset:superset ./* \
     && rm -rf /var/lib/apt/lists/*
@@ -82,9 +83,9 @@ COPY --chown=superset:superset requirements/base.txt requirements/
 RUN --mount=type=cache,target=/root/.cache/pip \
     apt-get update -qq && apt-get install -yqq --no-install-recommends \
       build-essential \
-    && pip install --upgrade pip uv 
-RUN uv pip install setuptools openpyxl psycopg2 mysqlclient \
-    && uv pip install -r requirements/base.txt \
+    && pip install --upgrade pip  uv 
+RUN uv pip install --system setuptools openpyxl psycopg2 mysqlclient \
+    && uv pip install --system -r requirements/base.txt \
     && apt-get autoremove -yqq --purge build-essential \
     && rm -rf /var/lib/apt/lists/*
 
@@ -92,7 +93,7 @@ COPY --chown=superset:superset --from=superset-node /app/superset/static/assets 
 ## Lastly, let's install superset itself
 COPY --chown=superset:superset superset superset
 RUN --mount=type=cache,target=/root/.cache/pip \
-    uv pip install -e . \
+uv pip install --system -e . \
     && flask fab babel-compile --target superset/translations \
     && chown -R superset:superset superset/translations
 
@@ -124,7 +125,7 @@ RUN apt-get update -qq \
         && rm -rf /var/lib/apt/lists/*
 
 RUN --mount=type=cache,target=/root/.cache/pip \
-    uv pip install playwright
+uv pip install --system playwright
 RUN playwright install-deps
 RUN playwright install chromium
 
@@ -145,7 +146,7 @@ COPY --chown=superset:superset requirements/development.txt requirements/
 RUN --mount=type=cache,target=/root/.cache/pip \
     apt-get update -qq && apt-get install -yqq --no-install-recommends \
       build-essential \
-    && uv pip install -r requirements/development.txt \
+    && uv pip install --system -r requirements/development.txt \
     && apt-get autoremove -yqq --purge build-essential \
     && rm -rf /var/lib/apt/lists/*
 
