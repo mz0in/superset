@@ -329,6 +329,8 @@ class OAuth2RedirectError(SupersetErrorException):
 
     See the `OAuth2RedirectMessage.tsx` component for more details of how this
     information is handled.
+
+    TODO (betodealmeida): change status to 403.
     """
 
     def __init__(self, url: str, tab_id: str, redirect_uri: str):
@@ -358,9 +360,30 @@ class OAuth2Error(SupersetErrorException):
         )
 
 
+class DisallowedSQLFunction(SupersetErrorException):
+    """
+    Disallowed function found on SQL statement
+    """
+
+    def __init__(self, functions: set[str]):
+        super().__init__(
+            SupersetError(
+                message=f"SQL statement contains disallowed function(s): {functions}",
+                error_type=SupersetErrorType.SYNTAX_ERROR,
+                level=ErrorLevel.ERROR,
+            )
+        )
+
+
 class CreateKeyValueDistributedLockFailedException(Exception):
     """
     Exception to signalize failure to acquire lock.
+    """
+
+
+class DeleteKeyValueDistributedLockFailedException(Exception):
+    """
+    Exception to signalize failure to delete lock.
     """
 
 

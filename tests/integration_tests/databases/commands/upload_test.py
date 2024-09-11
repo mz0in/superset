@@ -17,21 +17,20 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
+from flask.ctx import AppContext
 
 from superset import db, security_manager
 from superset.commands.database.exceptions import (
     DatabaseNotFoundError,
     DatabaseSchemaUploadNotAllowed,
-    DatabaseUploadFailed,
     DatabaseUploadNotSupported,
 )
 from superset.commands.database.uploaders.base import UploadCommand
 from superset.commands.database.uploaders.csv_reader import CSVReader
 from superset.connectors.sqla.models import SqlaTable
 from superset.models.core import Database
+from superset.utils import json
 from superset.utils.core import override_user
 from superset.utils.database import get_or_create_db
 from tests.integration_tests.conftest import only_postgresql
@@ -73,7 +72,7 @@ def _setup_csv_upload(allowed_schemas: list[str] | None = None):
     yield
 
     upload_db = get_upload_db()
-    with upload_db.get_sqla_engine_with_context() as engine:
+    with upload_db.get_sqla_engine() as engine:
         engine.execute(f"DROP TABLE IF EXISTS {CSV_UPLOAD_TABLE}")
         engine.execute(f"DROP TABLE IF EXISTS {CSV_UPLOAD_TABLE_W_SCHEMA}")
     db.session.delete(upload_db)
@@ -84,16 +83,14 @@ def get_upload_db():
     return db.session.query(Database).filter_by(database_name=CSV_UPLOAD_DATABASE).one()
 
 
-@pytest.fixture(scope="function")
-def setup_csv_upload_with_context():
-    with app.app_context():
-        yield from _setup_csv_upload()
+@pytest.fixture()
+def setup_csv_upload_with_context(app_context: AppContext):
+    yield from _setup_csv_upload()
 
 
-@pytest.fixture(scope="function")
-def setup_csv_upload_with_context_schema():
-    with app.app_context():
-        yield from _setup_csv_upload(["public"])
+@pytest.fixture()
+def setup_csv_upload_with_context_schema(app_context: AppContext):
+    yield from _setup_csv_upload(["public"])
 
 
 @pytest.mark.usefixtures("setup_csv_upload_with_context")
@@ -109,7 +106,7 @@ def test_csv_upload_with_nulls():
             None,
             CSVReader({"null_values": ["N/A", "None"]}),
         ).run()
-    with upload_database.get_sqla_engine_with_context() as engine:
+    with upload_database.get_sqla_engine() as engine:
         data = engine.execute(f"SELECT * from {CSV_UPLOAD_TABLE}").fetchall()
         assert data == [
             ("name1", None, "city1", "1-1-1980"),
@@ -138,6 +135,38 @@ def test_csv_upload_dataset():
     )
     assert dataset is not None
     assert security_manager.find_user("admin") in dataset.owners
+
+
+@pytest.mark.usefixtures("setup_csv_upload_with_context")
+def test_csv_upload_with_index():
+    admin_user = security_manager.find_user(username="admin")
+    upload_database = get_upload_db()
+
+    with override_user(admin_user):
+        UploadCommand(
+            upload_database.id,
+            CSV_UPLOAD_TABLE,
+            create_csv_file(CSV_FILE_1),
+            None,
+            CSVReader({"dataframe_index": True, "index_label": "id"}),
+        ).run()
+    with upload_database.get_sqla_engine() as engine:
+        data = engine.execute(f"SELECT * from {CSV_UPLOAD_TABLE}").fetchall()
+        assert data == [
+            (0, "name1", 30, "city1", "1-1-1980"),
+            (1, "name2", 29, "city2", "1-1-1981"),
+            (2, "name3", 28, "city3", "1-1-1982"),
+        ]
+        # assert column names
+        assert [
+            col for col in engine.execute(f"SELECT * from {CSV_UPLOAD_TABLE}").keys()
+        ] == [
+            "id",
+            "Name",
+            "Age",
+            "City",
+            "Birth",
+        ]
 
 
 @only_postgresql

@@ -22,7 +22,6 @@ from typing import Any, Callable, DefaultDict, Optional, Union
 
 import msgpack
 import pyarrow as pa
-import simplejson as json
 from flask import flash, g, has_request_context, redirect, request
 from flask_appbuilder.security.sqla import models as ab_models
 from flask_appbuilder.security.sqla.models import User
@@ -47,6 +46,7 @@ from superset.models.dashboard import Dashboard
 from superset.models.slice import Slice
 from superset.models.sql_lab import Query
 from superset.superset_typing import FormData
+from superset.utils import json
 from superset.utils.core import DatasourceType
 from superset.utils.decorators import stats_timing
 from superset.viz import BaseViz
@@ -108,7 +108,7 @@ def get_permissions(
 
     data_permissions = defaultdict(set)
     roles_permissions = security_manager.get_user_roles_permissions(user)
-    for _, permissions in roles_permissions.items():
+    for _, permissions in roles_permissions.items():  # noqa: F402
         for permission in permissions:
             if permission[0] in ("datasource_access", "database_access"):
                 data_permissions[permission[0]].add(permission[1])

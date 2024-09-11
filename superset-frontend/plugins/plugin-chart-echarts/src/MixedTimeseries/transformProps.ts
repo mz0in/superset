@@ -39,10 +39,12 @@ import {
   QueryFormMetric,
   TimeseriesChartDataResponseResult,
   TimeseriesDataRecord,
+  tooltipHtml,
   ValueFormatter,
 } from '@superset-ui/core';
 import { getOriginalSeries } from '@superset-ui/chart-controls';
-import { EChartsCoreOption, SeriesOption } from 'echarts';
+import type { EChartsCoreOption } from 'echarts/core';
+import type { SeriesOption } from 'echarts';
 import {
   DEFAULT_FORM_DATA,
   EchartsMixedTimeseriesChartTransformedProps,
@@ -388,6 +390,7 @@ export default function transformProps(
         seriesType,
         showValue,
         stack: Boolean(stack),
+        stackIdSuffix: '\na',
         yAxisIndex,
         filterState,
         seriesKey: entry.name,
@@ -434,6 +437,7 @@ export default function transformProps(
         seriesType: seriesTypeB,
         showValue: showValueB,
         stack: Boolean(stackB),
+        stackIdSuffix: '\nb',
         yAxisIndex: yAxisIndexB,
         filterState,
         seriesKey: primarySeries.has(entry.name as string)
@@ -581,11 +585,12 @@ export default function transformProps(
           forecastValue.sort((a, b) => b.data[1] - a.data[1]);
         }
 
-        const rows: Array<string> = [`${tooltipFormatter(xValue)}`];
+        const rows: string[][] = [];
         const forecastValues =
           extractForecastValuesFromTooltipParams(forecastValue);
 
-        Object.keys(forecastValues).forEach(key => {
+        const keys = Object.keys(forecastValues);
+        keys.forEach(key => {
           const value = forecastValues[key];
           // if there are no dimensions, key is a verbose name of a metric,
           // otherwise it is a comma separated string where the first part is metric name
@@ -611,18 +616,20 @@ export default function transformProps(
             formatterKey,
             !!contributionMode,
           );
-          const content = formatForecastTooltipSeries({
+          const row = formatForecastTooltipSeries({
             ...value,
             seriesName: key,
             formatter: primarySeries.has(key)
               ? tooltipFormatter
               : tooltipFormatterSecondary,
           });
-          const contentStyle =
-            key === focusedSeries ? 'font-weight: 700' : 'opacity: 0.7';
-          rows.push(`<span style="${contentStyle}">${content}</span>`);
+          rows.push(row);
         });
-        return rows.join('<br />');
+        return tooltipHtml(
+          rows,
+          tooltipFormatter(xValue),
+          keys.findIndex(key => key === focusedSeries),
+        );
       },
     },
     legend: {

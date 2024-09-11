@@ -39,6 +39,7 @@ from sqlglot.optimizer.scope import Scope, ScopeType, traverse_scope
 from sqlparse import keywords
 from sqlparse.lexer import Lexer
 from sqlparse.sql import (
+    Function,
     Identifier,
     IdentifierList,
     Parenthesis,
@@ -101,6 +102,7 @@ SQLGLOT_DIALECTS = {
     "clickhouse": Dialects.CLICKHOUSE,
     "clickhousedb": Dialects.CLICKHOUSE,
     "cockroachdb": Dialects.POSTGRES,
+    "couchbase": Dialects.MYSQL,
     # "crate": ???
     # "databend": ???
     "databricks": Dialects.DATABRICKS,
@@ -137,6 +139,7 @@ SQLGLOT_DIALECTS = {
     "shillelagh": Dialects.SQLITE,
     "snowflake": Dialects.SNOWFLAKE,
     # "solr": ???
+    "spark": Dialects.SPARK,
     "sqlite": Dialects.SQLITE,
     "starrocks": Dialects.STARROCKS,
     "superset": Dialects.SQLITE,
@@ -220,6 +223,19 @@ def get_cte_remainder_query(sql: str) -> tuple[str | None, str]:
     cte = f"WITH {token.value}"
 
     return cte, remainder
+
+
+def check_sql_functions_exist(
+    sql: str, function_list: set[str], engine: str | None = None
+) -> bool:
+    """
+    Check if the SQL statement contains any of the specified functions.
+
+    :param sql: The SQL statement
+    :param function_list: The list of functions to search for
+    :param engine: The engine to use for parsing the SQL statement
+    """
+    return ParsedQuery(sql, engine=engine).check_functions_exist(function_list)
 
 
 def strip_comments_from_sql(statement: str, engine: str | None = None) -> str:
@@ -436,6 +452,14 @@ class BaseSQLStatement(Generic[InternalRepresentation]):
         """
         raise NotImplementedError()
 
+    def is_mutating(self) -> bool:
+        """
+        Check if the statement mutates data (DDL/DML).
+
+        :return: True if the statement mutates data.
+        """
+        raise NotImplementedError()
+
     def __str__(self) -> str:
         return self.format()
 
@@ -505,6 +529,43 @@ class SQLStatement(BaseSQLStatement[exp.Expression]):
         """
         dialect = SQLGLOT_DIALECTS.get(engine)
         return extract_tables_from_statement(parsed, dialect)
+
+    def is_mutating(self) -> bool:
+        """
+        Check if the statement mutates data (DDL/DML).
+
+        :return: True if the statement mutates data.
+        """
+        for node in self._parsed.walk():
+            if isinstance(
+                node,
+                (
+                    exp.Insert,
+                    exp.Update,
+                    exp.Delete,
+                    exp.Merge,
+                    exp.Create,
+                    exp.Drop,
+                    exp.TruncateTable,
+                ),
+            ):
+                return True
+
+            if isinstance(node, exp.Command) and node.name == "ALTER":
+                return True
+
+        # Postgres runs DMLs prefixed by `EXPLAIN ANALYZE`, see
+        # https://www.postgresql.org/docs/current/sql-explain.html
+        if (
+            self._dialect == Dialects.POSTGRES
+            and isinstance(self._parsed, exp.Command)
+            and self._parsed.name == "EXPLAIN"
+            and self._parsed.expression.name.upper().startswith("ANALYZE ")
+        ):
+            analyzed_sql = self._parsed.expression.name[len("ANALYZE ") :]
+            return SQLStatement(analyzed_sql, self.engine).is_mutating()
+
+        return False
 
     def format(self, comments: bool = True) -> str:
         """
@@ -672,6 +733,14 @@ class KustoKQLStatement(BaseSQLStatement[str]):
 
         return {}
 
+    def is_mutating(self) -> bool:
+        """
+        Check if the statement mutates data (DDL/DML).
+
+        :return: True if the statement mutates data.
+        """
+        return self._parsed.startswith(".") and not self._parsed.startswith(".show")
+
 
 class SQLScript:
     """
@@ -714,6 +783,14 @@ class SQLScript:
 
         return settings
 
+    def has_mutation(self) -> bool:
+        """
+        Check if the script contains mutating statements.
+
+        :return: True if the script contains mutating statements
+        """
+        return any(statement.is_mutating() for statement in self.statements)
+
 
 class ParsedQuery:
     def __init__(
@@ -741,6 +818,34 @@ class ParsedQuery:
         if not self._tables:
             self._tables = self._extract_tables_from_sql()
         return self._tables
+
+    def _check_functions_exist_in_token(
+        self, token: Token, functions: set[str]
+    ) -> bool:
+        if (
+            isinstance(token, Function)
+            and token.get_name() is not None
+            and token.get_name().lower() in functions
+        ):
+            return True
+        if hasattr(token, "tokens"):
+            for inner_token in token.tokens:
+                if self._check_functions_exist_in_token(inner_token, functions):
+                    return True
+        return False
+
+    def check_functions_exist(self, functions: set[str]) -> bool:
+        """
+        Check if the SQL statement contains any of the specified functions.
+
+        :param functions: A set of functions to search for
+        :return: True if the statement contains any of the specified functions
+        """
+        for statement in self._parsed:
+            for token in statement.tokens:
+                if self._check_functions_exist_in_token(token, functions):
+                    return True
+        return False
 
     def _extract_tables_from_sql(self) -> set[Table]:
         """
@@ -883,6 +988,7 @@ class ParsedQuery:
     def is_select(self) -> bool:
         # make sure we strip comments; prevents a bug with comments in the CTE
         parsed = sqlparse.parse(self.strip_comments())
+        seen_select = False
 
         for statement in parsed:
             # Check if this is a CTE
@@ -906,6 +1012,7 @@ class ParsedQuery:
                     return False
 
             if statement.get_type() == "SELECT":
+                seen_select = True
                 continue
 
             if statement.get_type() != "UNKNOWN":
@@ -919,8 +1026,11 @@ class ParsedQuery:
             ):
                 return False
 
+            if imt(statement.tokens[0], m=(Keyword, "USE")):
+                continue
+
             # return false on `EXPLAIN`, `SET`, `SHOW`, etc.
-            if statement[0].ttype == Keyword:
+            if imt(statement.tokens[0], t=Keyword):
                 return False
 
             if not any(
@@ -929,7 +1039,7 @@ class ParsedQuery:
             ):
                 return False
 
-        return True
+        return seen_select
 
     def get_inner_cte_expression(self, tokens: TokenList) -> TokenList | None:
         for token in tokens:
@@ -1221,10 +1331,8 @@ def get_rls_for_table(
     if not dataset:
         return None
 
-    template_processor = dataset.get_template_processor()
     predicate = " AND ".join(
-        str(filter_)
-        for filter_ in dataset.get_sqla_row_level_filters(template_processor)
+        str(filter_) for filter_ in dataset.get_sqla_row_level_filters()
     )
     if not predicate:
         return None
@@ -1554,16 +1662,19 @@ def extract_tables_from_jinja_sql(sql: str, database: Database) -> set[Table]:
             "latest_partition",
             "latest_sub_partition",
         ):
-            # Extract the table referenced in the macro.
-            tables.add(
-                Table(
-                    *[
-                        remove_quotes(part.strip())
-                        for part in node.args[0].as_const().split(".")[::-1]
-                        if len(node.args) == 1
-                    ]
+            # Try to extract the table referenced in the macro.
+            try:
+                tables.add(
+                    Table(
+                        *[
+                            remove_quotes(part.strip())
+                            for part in node.args[0].as_const().split(".")[::-1]
+                            if len(node.args) == 1
+                        ]
+                    )
                 )
-            )
+            except nodes.Impossible:
+                pass
 
             # Replace the potentially problematic Jinja macro with some benign SQL.
             node.__class__ = nodes.TemplateData

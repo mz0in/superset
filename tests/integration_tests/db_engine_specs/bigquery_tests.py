@@ -27,8 +27,8 @@ from superset.errors import ErrorLevel, SupersetError, SupersetErrorType
 from superset.sql_parse import Table
 from tests.integration_tests.db_engine_specs.base_tests import TestDbEngineSpec
 from tests.integration_tests.fixtures.birth_names_dashboard import (
-    load_birth_names_dashboard_with_slices,
-    load_birth_names_data,
+    load_birth_names_dashboard_with_slices,  # noqa: F401
+    load_birth_names_data,  # noqa: F401
 )
 
 
@@ -165,8 +165,7 @@ class TestBigQueryDbEngineSpec(TestDbEngineSpec):
             BigQueryEngineSpec.get_indexes(
                 database,
                 inspector,
-                table_name,
-                schema,
+                Table(table_name, schema),
             )
             == []
         )
@@ -184,8 +183,7 @@ class TestBigQueryDbEngineSpec(TestDbEngineSpec):
         assert BigQueryEngineSpec.get_indexes(
             database,
             inspector,
-            table_name,
-            schema,
+            Table(table_name, schema),
         ) == [
             {
                 "name": "partition",
@@ -207,8 +205,7 @@ class TestBigQueryDbEngineSpec(TestDbEngineSpec):
         assert BigQueryEngineSpec.get_indexes(
             database,
             inspector,
-            table_name,
-            schema,
+            Table(table_name, schema),
         ) == [
             {
                 "name": "partition",
@@ -339,11 +336,11 @@ class TestBigQueryDbEngineSpec(TestDbEngineSpec):
             )
         ]
 
-        msg = 'Syntax error: Expected end of input but got identifier "fromm"'
+        msg = 'Syntax error: Expected end of input but got identifier "from_"'
         result = BigQueryEngineSpec.extract_errors(Exception(msg))
         assert result == [
             SupersetError(
-                message='Please check your query for syntax errors at or near "fromm". Then, try running your query again.',
+                message='Please check your query for syntax errors at or near "from_". Then, try running your query again.',
                 error_type=SupersetErrorType.SYNTAX_ERROR,
                 level=ErrorLevel.ERROR,
                 extra={
