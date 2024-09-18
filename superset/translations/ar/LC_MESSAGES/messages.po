@@ -10327,13 +10327,13 @@ msgid "Superset dashboard"
 msgstr "لوحة تحكم شاملة"
 
 msgid "Superset encountered an error while running a command."
-msgstr "سورة سورة مصر العربية"
+msgstr "واجه زين داتا مشكلة أثناء تنفيذالأمر "
 
 msgid "Superset encountered an unexpected error."
-msgstr "سوره سوره مصر مالده"
+msgstr "واجه زين داتا مشكلة غير متوقعة"
 
 msgid "Supported databases"
-msgstr "سورة القيامة"
+msgstr "قواعد البيانات المدعومة"
 
 msgid "Survey Responses"
 msgstr "ردود الاستطلاع"
@@ -10349,7 +10349,7 @@ msgid ""
 "scatter, and bar charts. This viz type has many customization options as "
 "well."
 msgstr ""
-"سكين الجيش السويسري لتصور البيانات. اختر بين المخططات المتدرجة والخطية "
+"أداة تحليل متقدمة لتحليل و إظهار البيانات. اختر بين المخططات المتدرجة والخطية "
 "والمبعثرة والشريطية. يحتوي هذا النوع من viz على العديد من خيارات التخصيص "
 "أيضًا."
 

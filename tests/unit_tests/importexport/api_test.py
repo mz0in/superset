@@ -142,7 +142,7 @@ def test_import_assets_not_zip(
                         {
                             "code": 1010,
                             "message": (
-                                "Issue 1010 - Superset encountered an error while "
+                                "Issue 1010 - ZainDash encountered an error while "
                                 "running a command."
                             ),
                         }
@@ -247,7 +247,7 @@ def test_import_assets_no_contents(
                         {
                             "code": 1010,
                             "message": (
-                                "Issue 1010 - Superset encountered an error while "
+                                "Issue 1010 - ZainDash encountered an error while "
                                 "running a command."
                             ),
                         }

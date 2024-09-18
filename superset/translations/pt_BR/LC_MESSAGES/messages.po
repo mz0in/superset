@@ -10554,10 +10554,10 @@ msgstr "Gráfico do Superset"
 msgid "Superset dashboard"
 msgstr "Painel Superset"
 
-msgid "Superset encountered an error while running a command."
+msgid "ZainDash encountered an error while running a command."
 msgstr "O Superset encontrou um erro ao executar um comando."
 
-msgid "Superset encountered an unexpected error."
+msgid "ZainDash encountered an unexpected error."
 msgstr "O Superset encontrou um erro inesperado."
 
 msgid "Supported databases"

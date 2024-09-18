@@ -10493,10 +10493,10 @@ msgstr "Explorar gráfico"
 msgid "Superset dashboard"
 msgstr "Gravar Dashboard"
 
-msgid "Superset encountered an error while running a command."
+msgid "ZainDash encountered an error while running a command."
 msgstr ""
 
-msgid "Superset encountered an unexpected error."
+msgid "ZainDash encountered an unexpected error."
 msgstr ""
 
 #, fuzzy

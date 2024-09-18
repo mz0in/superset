@@ -1845,7 +1845,7 @@ class TestChartApi(ApiOwnersTestCaseMixin, InsertChartMixin, SupersetTestCase):
                         "issue_codes": [
                             {
                                 "code": 1010,
-                                "message": "Issue 1010 - Superset encountered an error while running a command.",
+                                "message": "Issue 1010 - ZainDash encountered an error while running a command.",
                             }
                         ],
                     },
@@ -1920,7 +1920,7 @@ class TestChartApi(ApiOwnersTestCaseMixin, InsertChartMixin, SupersetTestCase):
                             {
                                 "code": 1010,
                                 "message": (
-                                    "Issue 1010 - Superset encountered an "
+                                    "Issue 1010 - ZainDash encountered an "
                                     "error while running a command."
                                 ),
                             }

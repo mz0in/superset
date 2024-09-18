@@ -123,7 +123,7 @@ COPY --chown=superset:superset requirements/base.txt requirements/
 RUN --mount=type=cache,target=/root/.cache/pip \
     apt-get update -qq && apt-get install -yqq --no-install-recommends \
       build-essential \
-    && pip install --no-cache-dir --upgrade setuptools pip \
+    && pip install --no-cache-dir --upgrade setuptools pip psycopg2 openpyxl  \
     && pip install --no-cache-dir -r requirements/base.txt \
     && apt-get autoremove -yqq --purge build-essential \
     && rm -rf /var/lib/apt/lists/*
