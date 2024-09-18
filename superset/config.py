@@ -545,6 +545,10 @@ DEFAULT_FEATURE_FLAGS: dict[str, bool] = {
     "SQLLAB_FORCE_RUN_ASYNC": False,
     # Set to True to to enable factory resent CLI command
     "ENABLE_FACTORY_RESET_COMMAND": False,
+    # Whether Superset should use Slack avatars for users.
+    # If on, you'll want to add "https://avatars.slack-edge.com" to the list of allowed
+    # domains in your TALISMAN_CONFIG
+    "SLACK_ENABLE_AVATARS": False,
 }
 
 # ------------------------------
@@ -1047,6 +1051,10 @@ SQLLAB_ASYNC_TIME_LIMIT_SEC = int(timedelta(hours=6).total_seconds())
 # timeout.
 SQLLAB_QUERY_COST_ESTIMATE_TIMEOUT = int(timedelta(seconds=10).total_seconds())
 
+# Timeout duration for SQL Lab fetching query results by the resultsKey.
+# 0 means no timeout.
+SQLLAB_QUERY_RESULT_TIMEOUT = 0
+
 # The cost returned by the databases is a relative value; in order to map the cost to
 # a tangible value you need to define a custom formatter that takes into consideration
 # your specific infrastructure. For example, you could analyze queries a posteriori by
@@ -1423,11 +1431,6 @@ EMAIL_REPORTS_CTA = "Explore in Superset"
 SLACK_API_TOKEN: Callable[[], str] | str | None = None
 SLACK_PROXY = None
 
-# Whether Superset should use Slack avatars for users.
-# If on, you'll want to add "https://avatars.slack-edge.com" to the list of allowed
-# domains in your TALISMAN_CONFIG
-SLACK_ENABLE_AVATARS = False
-
 # The webdriver to use for generating reports. Use one of the following
 # firefox
 #   Requires: geckodriver and firefox installations
@@ -1722,6 +1725,15 @@ GUEST_TOKEN_HEADER_NAME = "X-GuestToken"
 GUEST_TOKEN_JWT_EXP_SECONDS = 300  # 5 minutes
 # Guest token audience for the embedded superset, either string or callable
 GUEST_TOKEN_JWT_AUDIENCE: Callable[[], str] | str | None = None
+
+# A callable that can be supplied to do extra validation of guest token configuration
+# for example certain RLS parameters:
+# lambda x: len(x['rls']) == 1 and "tenant_id=" in x['rls'][0]['clause']
+#
+# Takes the GuestTokenUser dict as an argument
+# Return False from the callable to return a HTTP 400 to the user.
+
+GUEST_TOKEN_VALIDATOR_HOOK = None
 
 # A SQL dataset health check. Note if enabled it is strongly advised that the callable
 # be memoized to aid with performance, i.e.,
