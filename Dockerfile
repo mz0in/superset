@@ -121,7 +121,7 @@ ARG INCLUDE_CHROMIUM="true"
 ARG INCLUDE_FIREFOX="false"
 RUN --mount=type=cache,target=/root/.cache/uv\
     if [ "$INCLUDE_CHROMIUM" = "true" ] || [ "$INCLUDE_FIREFOX" = "true" ]; then \
-        uv pip install playwright psycopg2 && \
+        uv pip install playwright psycopg2-binary && \
         playwright install-deps && \
         if [ "$INCLUDE_CHROMIUM" = "true" ]; then playwright install chromium; fi && \
         if [ "$INCLUDE_FIREFOX" = "true" ]; then playwright install firefox; fi; \
@@ -180,7 +180,8 @@ RUN /app/docker/apt-install.sh \
       libsasl2-modules-gssapi-mit \
       libpq-dev \
       libecpg-dev \
-      libldap2-dev
+      libldap2-dev \
+      postgresql-server-dev-all
 
 # Copy compiled things from previous stages
 COPY --from=superset-node /app/superset/static/assets superset/static/assets
