@@ -10121,7 +10121,7 @@ msgstr "Supersetチャート"
 msgid "Superset encountered an error while running a command."
 msgstr "コマンドの実行中にSupersetでエラーが発生しました。"
 
-msgid "ZainDash encountered an unexpected error."
+msgid "Superset encountered an unexpected error."
 msgstr "Supersetで予期しないエラーが発生しました。"
 
 msgid "Supported databases"
