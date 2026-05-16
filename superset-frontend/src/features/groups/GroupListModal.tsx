@@ -16,8 +16,9 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { t } from '@superset-ui/core';
+import { t } from '@apache-superset/core/translation';
 import { useToasts } from 'src/components/MessageToasts/withToasts';
+import { ModalTitleWithIcon } from 'src/components/ModalTitleWithIcon';
 import { Actions } from 'src/constants';
 import { GroupObject } from 'src/pages/GroupsList';
 import {
@@ -101,7 +102,13 @@ function GroupListModal({
     <FormModal
       show={show}
       onHide={onHide}
-      title={isEditMode ? t('Edit Group') : t('Add Group')}
+      name={isEditMode ? 'Edit Group' : 'Add Group'}
+      title={
+        <ModalTitleWithIcon
+          isEditMode={isEditMode}
+          title={isEditMode ? t('Edit Group') : t('Add Group')}
+        />
+      }
       onSave={onSave}
       formSubmitHandler={handleFormSubmit}
       requiredFields={requiredFields}

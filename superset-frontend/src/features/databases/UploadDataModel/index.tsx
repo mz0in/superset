@@ -25,13 +25,9 @@ import {
   FC,
 } from 'react';
 
-import {
-  css,
-  getClientErrorObject,
-  SupersetClient,
-  SupersetTheme,
-  t,
-} from '@superset-ui/core';
+import { t } from '@apache-superset/core/translation';
+import { getClientErrorObject, SupersetClient } from '@superset-ui/core';
+import { SupersetTheme } from '@apache-superset/core/theme';
 import {
   Button,
   Collapse,
@@ -52,6 +48,7 @@ import { Switch, SwitchProps } from '@superset-ui/core/components/Switch';
 import { Icons } from '@superset-ui/core/components/Icons';
 import rison from 'rison';
 import withToasts from 'src/components/MessageToasts/withToasts';
+import { ModalTitleWithIcon } from 'src/components/ModalTitleWithIcon';
 import {
   antDModalNoPaddingStyles,
   antDModalStyles,
@@ -71,6 +68,7 @@ interface UploadDataModalProps {
   show: boolean;
   allowedExtensions: string[];
   type: UploadType;
+  fileListOverride?: File[];
 }
 
 const CSVSpecificFields = [
@@ -219,6 +217,7 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
   show,
   allowedExtensions,
   type = 'csv',
+  fileListOverride,
 }) => {
   const [form] = Form.useForm();
   const [currentDatabaseId, setCurrentDatabaseId] = useState<number>(0);
@@ -529,9 +528,25 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
   };
 
   useEffect(() => {
+    if (fileListOverride?.length) {
+      setFileList(
+        fileListOverride.map(file => ({
+          uid: file.name,
+          name: file.name,
+          originFileObj: file as UploadFile['originFileObj'],
+          status: 'done' as const,
+        })),
+      );
+      if (previewUploadedFile) {
+        loadFileMetadata(fileListOverride[0]).then(r => r);
+      }
+    }
+  }, [fileListOverride, previewUploadedFile]);
+
+  useEffect(() => {
     if (
       columns.length > 0 &&
-      fileList[0].originFileObj &&
+      fileList.length > 0 &&
       fileList[0].originFileObj instanceof File
     ) {
       if (!previewUploadedFile) {
@@ -578,17 +593,7 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
 
   const UploadTitle: FC = () => {
     const title = uploadTitles[type] || t('Upload');
-    return (
-      <Typography.Title
-        level={5}
-        css={css`
-          margin-top: 0;
-          margin-bottom: 0;
-        `}
-      >
-        {title}
-      </Typography.Title>
-    );
+    return <ModalTitleWithIcon title={title} />;
   };
 
   return (
@@ -726,7 +731,10 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
                         name="table_name"
                         required
                         rules={[
-                          { required: true, message: 'Table name is required' },
+                          {
+                            required: true,
+                            message: t('Table name is required'),
+                          },
                         ]}
                       >
                         <Input
@@ -1019,7 +1027,7 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
                             rules={[
                               {
                                 required: true,
-                                message: 'Header row is required',
+                                message: t('Header row is required'),
                               },
                             ]}
                           >
@@ -1052,7 +1060,7 @@ const UploadDataModal: FunctionComponent<UploadDataModalProps> = ({
                             rules={[
                               {
                                 required: true,
-                                message: 'Skip rows is required',
+                                message: t('Skip rows is required'),
                               },
                             ]}
                           >

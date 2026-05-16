@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { css, SupersetTheme } from '@superset-ui/core';
+import { css, SupersetTheme } from '@apache-superset/core/theme';
 
 export const headerStyles = (theme: SupersetTheme) => css`
   body {
@@ -100,13 +100,13 @@ export const focusStyle = (theme: SupersetTheme) => css`
       text-decoration: none;
     }
     &:not(
-        .superset-button,
-        .ant-menu-item,
-        a,
-        .fave-unfave-icon,
-        .ant-tabs-tabpane,
-        .header-controls span
-      ) {
+      .superset-button,
+      .ant-menu-item,
+      a,
+      .fave-unfave-icon,
+      .ant-tabs-tabpane,
+      .header-controls span
+    ) {
       &:focus-visible {
         padding: ${theme.sizeUnit / 2}px;
       }

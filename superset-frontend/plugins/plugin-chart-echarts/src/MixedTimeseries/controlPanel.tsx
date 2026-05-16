@@ -16,7 +16,8 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { ensureIsArray, t } from '@superset-ui/core';
+import { t } from '@apache-superset/core/translation';
+import { ensureIsArray } from '@superset-ui/core';
 import { cloneDeep } from 'lodash';
 import {
   ControlPanelsContainerProps,
@@ -42,6 +43,7 @@ import {
   xAxisBounds,
   xAxisLabelRotation,
   xAxisLabelInterval,
+  forceMaxInterval,
 } from '../controls';
 
 const {
@@ -358,7 +360,23 @@ const config: ControlPanelConfig = {
         ['x_axis_time_format'],
         [xAxisLabelRotation],
         [xAxisLabelInterval],
-        ...richTooltipSection,
+        [forceMaxInterval],
+        [<ControlSubSectionHeader>{t('Tooltip')}</ControlSubSectionHeader>],
+        [
+          {
+            name: 'show_query_identifiers',
+            config: {
+              type: 'CheckboxControl',
+              label: t('Show query identifiers'),
+              description: t(
+                'Add Query A and Query B identifiers to tooltips to help differentiate series',
+              ),
+              default: false,
+              renderTrigger: true,
+            },
+          },
+        ],
+        ...richTooltipSection.slice(1), // Skip the tooltip header since we added our own
         // eslint-disable-next-line react/jsx-key
         [<ControlSubSectionHeader>{t('Y Axis')}</ControlSubSectionHeader>],
         [
@@ -487,6 +505,7 @@ const config: ControlPanelConfig = {
             },
           },
         ],
+        ['echart_options'],
       ],
     },
   ],

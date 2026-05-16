@@ -146,6 +146,27 @@ class ExportDashboardsCommand(ExportModelsCommand):
                     if dataset:
                         target["datasetUuid"] = str(dataset.uuid)
 
+        # Replace display control dataset references with uuid.
+        # datasetId is intentionally preserved alongside datasetUuid so that
+        # bundles remain importable by older versions that do not yet understand
+        # datasetUuid for display-control targets.
+        for customization in (
+            payload.get("metadata", {}).get("chart_customization_config") or []
+        ):
+            for target in customization.get("targets") or []:
+                dataset_id = target.get("datasetId")
+                if dataset_id is not None:
+                    dataset = DatasetDAO.find_by_id(dataset_id)
+                    if dataset:
+                        target["datasetUuid"] = str(dataset.uuid)
+                    else:
+                        logger.warning(
+                            "Dashboard '%s': display control target references "
+                            "missing dataset %s; datasetUuid will not be set",
+                            model.dashboard_title,
+                            dataset_id,
+                        )
+
         # the mapping between dashboard -> charts is inferred from the position
         # attribute, so if it's not present we need to add a default config
         if not payload.get("position"):
@@ -160,6 +181,9 @@ class ExportDashboardsCommand(ExportModelsCommand):
 
         if orphan_charts:
             payload["position"] = append_charts(payload["position"], orphan_charts)
+
+        # Add theme UUID for proper cross-system imports
+        payload["theme_uuid"] = str(model.theme.uuid) if model.theme else None
 
         payload["version"] = EXPORT_VERSION
 
@@ -193,6 +217,12 @@ class ExportDashboardsCommand(ExportModelsCommand):
                     dashboard_ids=dashboard_ids, chart_ids=chart_ids
                 )
 
+            # Export related theme
+            if model.theme:
+                from superset.commands.theme.export import ExportThemesCommand
+
+                yield from ExportThemesCommand([model.theme.id]).run()
+
         payload = model.export_to_dict(
             recursive=False,
             include_parent_ref=False,
@@ -217,6 +247,17 @@ class ExportDashboardsCommand(ExportModelsCommand):
             ):
                 for target in native_filter.get("targets", []):
                     dataset_id = target.pop("datasetId", None)
+                    if dataset_id is not None:
+                        dataset = DatasetDAO.find_by_id(dataset_id)
+                        if dataset:
+                            yield from ExportDatasetsCommand([dataset_id]).run()
+
+            # Export datasets referenced by display controls
+            for customization in (
+                payload.get("metadata", {}).get("chart_customization_config") or []
+            ):
+                for target in customization.get("targets") or []:
+                    dataset_id = target.get("datasetId")
                     if dataset_id is not None:
                         dataset = DatasetDAO.find_by_id(dataset_id)
                         if dataset:

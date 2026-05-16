@@ -19,9 +19,9 @@
 import * as http from 'http';
 import * as net from 'net';
 import WebSocket from 'ws';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import jwt, { Algorithm } from 'jsonwebtoken';
-import cookie from 'cookie';
+import { parse } from 'cookie';
 import Redis, { RedisOptions } from 'ioredis';
 import StatsD from 'hot-shots';
 
@@ -168,7 +168,7 @@ export const trackClient = (
 ): string => {
   statsd.increment('ws_connected_client');
 
-  const socketId = uuidv4();
+  const socketId = randomUUID();
   sockets[socketId] = socketInstance;
 
   if (channel in channels) {
@@ -285,7 +285,7 @@ export const processStreamResults = (results: StreamResult[]): void => {
  * configured via 'jwtCookieName' in the config.
  */
 const readChannelId = (request: http.IncomingMessage): string => {
-  const cookies = cookie.parse(request.headers.cookie || '');
+  const cookies = parse(request.headers.cookie || '');
   const token = cookies[opts.jwtCookieName];
 
   if (!token) throw new Error('JWT not present');

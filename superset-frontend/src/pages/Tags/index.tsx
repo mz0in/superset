@@ -17,7 +17,8 @@
  * under the License.
  */
 import { useMemo, useState } from 'react';
-import { isFeatureEnabled, FeatureFlag, t } from '@superset-ui/core';
+import { t } from '@apache-superset/core/translation';
+import { isFeatureEnabled, FeatureFlag } from '@superset-ui/core';
 import {
   Actions,
   createErrorHandler,
@@ -172,6 +173,7 @@ function TagList(props: TagListProps) {
         ),
         Header: t('Name'),
         accessor: 'name',
+        size: 'xxl',
         id: 'name',
       },
       {
@@ -265,6 +267,7 @@ function TagList(props: TagListProps) {
         id: 'name',
         input: 'search',
         operator: FilterOperator.Contains,
+        inputName: 'tag_list_search',
       },
       {
         Header: t('Modified by'),

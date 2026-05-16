@@ -17,13 +17,13 @@
  * under the License.
  */
 
+import { t } from '@apache-superset/core/translation';
 import {
   FeatureFlag,
   isFeatureEnabled,
-  styled,
   SupersetClient,
-  t,
 } from '@superset-ui/core';
+import { styled } from '@apache-superset/core/theme';
 import { useCallback, useMemo, useState, MouseEvent } from 'react';
 import { Link, useHistory } from 'react-router-dom';
 import rison from 'rison';
@@ -61,9 +61,11 @@ import { QueryObjectColumns, SavedQueryObject } from 'src/views/CRUD/types';
 import { TagTypeEnum } from 'src/components/Tag/TagType';
 import { loadTags } from 'src/components/Tag/utils';
 import { Icons } from '@superset-ui/core/components/Icons';
+import copyTextToClipboard from 'src/utils/copy';
 import { UserWithPermissionsAndRoles } from 'src/types/bootstrapTypes';
 import SavedQueryPreviewModal from 'src/features/queries/SavedQueryPreviewModal';
 import { findPermission } from 'src/utils/findPermission';
+import { makeUrl } from 'src/utils/pathUtils';
 
 const PAGE_SIZE = 25;
 const PASSWORDS_NEEDED_MESSAGE = t(
@@ -99,7 +101,7 @@ const StyledTableLabel = styled.div`
 `;
 
 const StyledPopoverItem = styled.div`
-  color: ${({ theme }) => theme.colors.grayscale.dark2};
+  color: ${({ theme }) => theme.colorText};
 `;
 
 function SavedQueryList({
@@ -190,26 +192,6 @@ function SavedQueryList({
 
   const subMenuButtons: Array<ButtonProps> = [];
 
-  if (canDelete) {
-    subMenuButtons.push({
-      name: t('Bulk select'),
-      onClick: toggleBulkSelect,
-      buttonStyle: 'secondary',
-    });
-  }
-
-  subMenuButtons.push({
-    name: (
-      <>
-        <Icons.PlusOutlined iconSize="m" />
-        {t('Query')}
-      </>
-    ),
-    buttonStyle: 'primary',
-    onClick: () => {
-      history.push('/sqllab?new=true');
-    },
-  });
   if (canCreate) {
     subMenuButtons.push({
       name: (
@@ -228,13 +210,45 @@ function SavedQueryList({
     });
   }
 
+  if (canDelete) {
+    subMenuButtons.push({
+      name: t('Bulk select'),
+      onClick: toggleBulkSelect,
+      buttonStyle: 'secondary',
+    });
+  }
+
+  subMenuButtons.push({
+    icon: <Icons.PlusOutlined iconSize="m" />,
+    name: t('Query'),
+    buttonStyle: 'primary',
+    onClick: () => {
+      // React Router's basename already includes the application root; passing
+      // a relative path ensures correct navigation under subdirectory deployments.
+      history.push('/sqllab?new=true');
+    },
+  });
+
   menuData.buttons = subMenuButtons;
 
   // Action methods
   const openInSqlLab = (id: number, openInNewWindow: boolean) => {
+    copyTextToClipboard(() =>
+      Promise.resolve(
+        `${window.location.origin}${makeUrl(`/sqllab?savedQueryId=${id}`)}`,
+      ),
+    )
+      .then(() => {
+        addSuccessToast(t('Link Copied!'));
+      })
+      .catch(() => {
+        addDangerToast(t('Sorry, your browser does not support copying.'));
+      });
     if (openInNewWindow) {
-      window.open(`/sqllab?savedQueryId=${id}`);
+      window.open(makeUrl(`/sqllab?savedQueryId=${id}`));
     } else {
+      // React Router's basename already includes the application root; passing
+      // a relative path ensures correct navigation under subdirectory deployments.
       history.push(`/sqllab?savedQueryId=${id}`);
     }
   };
@@ -284,14 +298,19 @@ function SavedQueryList({
     );
   };
 
-  const handleBulkSavedQueryExport = (
+  const handleBulkSavedQueryExport = async (
     savedQueriesToExport: SavedQueryObject[],
   ) => {
     const ids = savedQueriesToExport.map(({ id }) => id);
-    handleResourceExport('saved_query', ids, () => {
-      setPreparingExport(false);
-    });
     setPreparingExport(true);
+    try {
+      await handleResourceExport('saved_query', ids, () => {
+        setPreparingExport(false);
+      });
+    } catch (error) {
+      setPreparingExport(false);
+      addDangerToast(t('There was an issue exporting the selected queries'));
+    }
   };
 
   const handleBulkQueryDelete = (queriesToDelete: SavedQueryObject[]) => {
@@ -318,6 +337,7 @@ function SavedQueryList({
       {
         accessor: 'label',
         Header: t('Name'),
+        size: 'xxl',
         Cell: ({
           row: {
             original: { id, label },
@@ -328,12 +348,13 @@ function SavedQueryList({
       {
         accessor: 'description',
         Header: t('Description'),
+        size: 'xl',
         id: 'description',
       },
       {
         accessor: 'database.database_name',
         Header: t('Database'),
-        size: 'xl',
+        size: 'lg',
         id: 'database.database_name',
       },
       {
@@ -345,7 +366,7 @@ function SavedQueryList({
       {
         accessor: 'schema',
         Header: t('Schema'),
-        size: 'xl',
+        size: 'lg',
         id: 'schema',
       },
       {
@@ -383,7 +404,7 @@ function SavedQueryList({
         },
         accessor: 'sql_tables',
         Header: t('Tables'),
-        size: 'xl',
+        size: 'lg',
         disableSortBy: true,
         id: 'sql_tables',
       },
@@ -432,19 +453,19 @@ function SavedQueryList({
           const handleDelete = () => setQueryCurrentlyDeleting(original);
 
           const actions = [
-            {
-              label: 'preview-action',
-              tooltip: t('Query preview'),
-              placement: 'bottom',
-              icon: 'Binoculars',
-              onClick: handlePreview,
-            },
             canEdit && {
               label: 'edit-action',
               tooltip: t('Edit query'),
               placement: 'bottom',
               icon: 'EditOutlined',
               onClick: handleEdit,
+            },
+            {
+              label: 'preview-action',
+              tooltip: t('Query preview'),
+              placement: 'bottom',
+              icon: 'Binoculars',
+              onClick: handlePreview,
             },
             {
               label: 'copy-action',

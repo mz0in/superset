@@ -16,51 +16,13 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { t, styled, css } from '@superset-ui/core';
-import { Icons, Modal, Typography } from '@superset-ui/core/components';
-import { Button } from '@superset-ui/core/components/Button';
+import { t } from '@apache-superset/core/translation';
+import { Icons, Modal, Typography, Button } from '@superset-ui/core/components';
 import type { FC, ReactElement } from 'react';
 
-const StyledModalTitle = styled(Typography.Title)`
-  && {
-    font-weight: 600;
-    margin: 0;
-  }
-`;
-
-const StyledModalBody = styled(Typography.Text)`
-  ${({ theme }) => css`
-    padding: 0 ${theme.sizeUnit * 2}px;
-
-    && {
-      margin: 0;
-    }
-  `}
-`;
-
-const StyledDiscardBtn = styled(Button)`
-  ${({ theme }) => css`
-    min-width: ${theme.sizeUnit * 22}px;
-    height: ${theme.sizeUnit * 8}px;
-  `}
-`;
-
-const StyledSaveBtn = styled(Button)`
-  ${({ theme }) => css`
-    min-width: ${theme.sizeUnit * 17}px;
-    height: ${theme.sizeUnit * 8}px;
-    span > :first-of-type {
-      margin-right: 0;
-    }
-  `}
-`;
-
-const StyledWarningIcon = styled(Icons.WarningOutlined)`
-  ${({ theme }) => css`
-    color: ${theme.colorWarning};
-    margin-right: ${theme.sizeUnit * 4}px;
-  `}
-`;
+// Ant Design's default modal zIndex is 1000. Using a higher value ensures
+// this dialog always renders above other open modals (e.g. a draggable View SQL modal).
+const UNSAVED_CHANGES_MODAL_Z_INDEX = 1100;
 
 export type UnsavedChangesModalProps = {
   showModal: boolean;
@@ -69,6 +31,7 @@ export type UnsavedChangesModalProps = {
   onConfirmNavigation: () => void;
   title?: string;
   body?: string;
+  zIndex?: number;
 };
 
 export const UnsavedChangesModal: FC<UnsavedChangesModalProps> = ({
@@ -78,6 +41,7 @@ export const UnsavedChangesModal: FC<UnsavedChangesModalProps> = ({
   onConfirmNavigation,
   title = 'Unsaved Changes',
   body = "If you don't save, changes will be lost.",
+  zIndex = UNSAVED_CHANGES_MODAL_Z_INDEX,
 }: UnsavedChangesModalProps): ReactElement => (
   <Modal
     centered
@@ -85,45 +49,24 @@ export const UnsavedChangesModal: FC<UnsavedChangesModalProps> = ({
     onHide={onHide}
     show={showModal}
     width="444px"
+    zIndex={zIndex}
     title={
-      <div
-        css={css`
-          align-items: center;
-          display: flex;
-        `}
-      >
-        <StyledWarningIcon iconSize="xl" />
-        <StyledModalTitle type="secondary" level={5}>
-          {title}
-        </StyledModalTitle>
-      </div>
+      <>
+        <Icons.WarningOutlined iconSize="m" style={{ marginRight: 8 }} />
+        {title}
+      </>
     }
     footer={
-      <div
-        css={css`
-          display: flex;
-          justify-content: flex-end;
-          width: 100%;
-        `}
-      >
-        <StyledDiscardBtn
-          htmlType="button"
-          buttonSize="small"
-          onClick={onConfirmNavigation}
-        >
+      <>
+        <Button buttonStyle="secondary" onClick={onConfirmNavigation}>
           {t('Discard')}
-        </StyledDiscardBtn>
-        <StyledSaveBtn
-          htmlType="button"
-          buttonSize="small"
-          buttonStyle="primary"
-          onClick={handleSave}
-        >
+        </Button>
+        <Button buttonStyle="primary" onClick={handleSave}>
           {t('Save')}
-        </StyledSaveBtn>
-      </div>
+        </Button>
+      </>
     }
   >
-    <StyledModalBody type="secondary">{body}</StyledModalBody>
+    <Typography.Text>{body}</Typography.Text>
   </Modal>
 );

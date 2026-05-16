@@ -36,28 +36,27 @@ import {
   QueryModeLabel,
   sections,
   sharedControls,
+  shouldSkipMetricColumn,
+  isRegularMetric,
+  isPercentMetric,
+  ColorSchemeEnum,
 } from '@superset-ui/chart-controls';
+import { t } from '@apache-superset/core/translation';
 import {
   ensureIsArray,
-  FeatureFlag,
-  GenericDataType,
-  getMetricLabel,
   isAdhocColumn,
-  isFeatureEnabled,
   isPhysicalColumn,
-  legacyValidateInteger,
+  validateInteger,
   QueryFormColumn,
-  QueryFormMetric,
   QueryMode,
   SMART_DATE_ID,
-  t,
   validateMaxValue,
   validateServerPagination,
+  withLabel,
 } from '@superset-ui/core';
-
+import { GenericDataType } from '@apache-superset/core/common';
 import { isEmpty, last } from 'lodash';
 import { PAGE_SIZE_OPTIONS, SERVER_PAGE_SIZE_OPTIONS } from './consts';
-import { ColorSchemeEnum } from './types';
 
 /**
  * Generate comparison column names for a given column.
@@ -88,31 +87,29 @@ function getQueryMode(controls: ControlStateMapping): QueryMode {
 }
 
 const processComparisonColumns = (columns: any[], suffix: string) =>
-  columns
-    .map(col => {
-      if (!col.label.includes(suffix)) {
-        return [
-          {
-            label: `${t('Main')} ${col.label}`,
-            value: `${t('Main')} ${col.value}`,
-          },
-          {
-            label: `# ${col.label}`,
-            value: `# ${col.value}`,
-          },
-          {
-            label: `△ ${col.label}`,
-            value: `△ ${col.value}`,
-          },
-          {
-            label: `% ${col.label}`,
-            value: `% ${col.value}`,
-          },
-        ];
-      }
-      return [];
-    })
-    .flat();
+  columns.flatMap(col => {
+    if (!col.label.includes(suffix)) {
+      return [
+        {
+          label: `${t('Main')} ${col.label}`,
+          value: `${t('Main')} ${col.value}`,
+        },
+        {
+          label: `# ${col.label}`,
+          value: `# ${col.value}`,
+        },
+        {
+          label: `△ ${col.label}`,
+          value: `△ ${col.value}`,
+        },
+        {
+          label: `% ${col.label}`,
+          value: `% ${col.value}`,
+        },
+      ];
+    }
+    return [];
+  });
 
 /**
  * Visibility check
@@ -155,8 +152,8 @@ const allColumnsControl: typeof sharedControls.groupby = {
   freeForm: true,
   allowAll: true,
   commaChoosesOption: false,
-  optionRenderer: c => <ColumnOption showType column={c} />,
-  valueRenderer: c => <ColumnOption column={c} />,
+  optionRenderer: c => <ColumnOption showType column={c as ColumnMeta} />,
+  valueRenderer: c => <ColumnOption column={c as ColumnMeta} />,
   valueKey: 'column_name',
   mapStateToProps: ({ datasource, controls }, controlState) => ({
     options: datasource?.columns || [],
@@ -252,7 +249,7 @@ const config: ControlPanelConfig = {
               visibility: ({ controls }) => {
                 const dttmLookup = Object.fromEntries(
                   ensureIsArray(controls?.groupby?.options).map(option => [
-                    option.column_name,
+                    (option.column_name || '').toLowerCase(),
                     option.is_dttm,
                   ]),
                 );
@@ -263,7 +260,7 @@ const config: ControlPanelConfig = {
                       return true;
                     }
                     if (isPhysicalColumn(selection)) {
-                      return !!dttmLookup[selection];
+                      return !!dttmLookup[(selection || '').toLowerCase()];
                     }
                     return false;
                   })
@@ -386,6 +383,7 @@ const config: ControlPanelConfig = {
               description: t('Rows per page, 0 means no pagination'),
               visibility: ({ controls }: ControlPanelsContainerProps) =>
                 Boolean(controls?.server_pagination?.value),
+              validators: [withLabel(validateInteger, t('Server Page Length'))],
             },
           },
         ],
@@ -404,7 +402,7 @@ const config: ControlPanelConfig = {
                   state?.common?.conf?.SQL_MAX_ROW,
               }),
               validators: [
-                legacyValidateInteger,
+                withLabel(validateInteger, t('Row limit')),
                 (v, state) =>
                   validateMaxValue(
                     v,
@@ -419,7 +417,7 @@ const config: ControlPanelConfig = {
                   ),
               ],
               // Re run the validations when this control value
-              validationDependancies: ['server_pagination'],
+              validationDependencies: ['server_pagination'],
               default: 10000,
               choices: formatSelectOptions(ROW_LIMIT_OPTIONS_TABLE),
               description: t(
@@ -496,6 +494,12 @@ const config: ControlPanelConfig = {
             },
           },
         ],
+      ],
+    },
+    {
+      label: t('Visual formatting'),
+      expanded: true,
+      controlSetRows: [
         [
           {
             name: 'column_config',
@@ -533,14 +537,25 @@ const config: ControlPanelConfig = {
                     )
                     .forEach((colname, index) => {
                       if (
-                        explore.form_data.metrics?.some(
-                          metric => getMetricLabel(metric) === colname,
-                        ) ||
-                        explore.form_data.percent_metrics?.some(
-                          (metric: QueryFormMetric) =>
-                            getMetricLabel(metric) === colname,
-                        )
+                        shouldSkipMetricColumn({
+                          colname,
+                          colnames,
+                          formData: explore.form_data,
+                        })
                       ) {
+                        return;
+                      }
+
+                      const isMetric = isRegularMetric(
+                        colname,
+                        explore.form_data,
+                      );
+                      const isPercentMetricValue = isPercentMetric(
+                        colname,
+                        explore.form_data,
+                      );
+
+                      if (isMetric || isPercentMetricValue) {
                         const comparisonColumns =
                           generateComparisonColumns(colname);
                         comparisonColumns.forEach((name, idx) => {
@@ -578,18 +593,12 @@ const config: ControlPanelConfig = {
             },
           },
         ],
-      ],
-    },
-    {
-      label: t('Visual formatting'),
-      expanded: true,
-      controlSetRows: [
         [
           {
             name: 'show_cell_bars',
             config: {
               type: 'CheckboxControl',
-              label: t('Show Cell bars'),
+              label: t('Show cell bars for all columns'),
               renderTrigger: true,
               default: true,
               description: t(
@@ -603,7 +612,7 @@ const config: ControlPanelConfig = {
             name: 'align_pn',
             config: {
               type: 'CheckboxControl',
-              label: t('Align +/-'),
+              label: t('Align +/- for all columns'),
               renderTrigger: true,
               default: false,
               description: t(
@@ -617,7 +626,7 @@ const config: ControlPanelConfig = {
             name: 'color_pn',
             config: {
               type: 'CheckboxControl',
-              label: t('add colors to cell bars for +/-'),
+              label: t('Add colors to cell bars for +/- for all columns'),
               renderTrigger: true,
               default: true,
               description: t(
@@ -631,7 +640,7 @@ const config: ControlPanelConfig = {
             name: 'comparison_color_enabled',
             config: {
               type: 'CheckboxControl',
-              label: t('basic conditional formatting'),
+              label: t('Basic conditional formatting'),
               renderTrigger: true,
               visibility: ({ controls }) =>
                 !isEmpty(controls?.time_compare?.value),
@@ -672,17 +681,7 @@ const config: ControlPanelConfig = {
             config: {
               type: 'ConditionalFormattingControl',
               renderTrigger: true,
-              label: t('Custom Conditional Formatting'),
-              extraColorChoices: [
-                {
-                  value: ColorSchemeEnum.Green,
-                  label: t('Green for increase, red for decrease'),
-                },
-                {
-                  value: ColorSchemeEnum.Red,
-                  label: t('Red for increase, green for decrease'),
-                },
-              ],
+              label: t('Custom conditional formatting'),
               description: t(
                 'Apply conditional color formatting to numeric columns',
               ),
@@ -695,6 +694,22 @@ const config: ControlPanelConfig = {
                 )
                   ? (explore?.datasource as Dataset)?.verbose_map
                   : (explore?.datasource?.columns ?? {});
+                const timeCompareValue = explore?.controls?.time_compare?.value;
+                const hasTimeComparison = !isEmpty(timeCompareValue);
+
+                const extraColorChoices = hasTimeComparison
+                  ? [
+                      {
+                        value: ColorSchemeEnum.Green,
+                        label: t('Green for increase, red for decrease'),
+                      },
+                      {
+                        value: ColorSchemeEnum.Red,
+                        label: t('Red for increase, green for decrease'),
+                      },
+                    ]
+                  : [];
+
                 const chartStatus = chart?.chartStatus;
                 const { colnames, coltypes } =
                   chart?.queriesResponse?.[0] ?? {};
@@ -710,14 +725,14 @@ const config: ControlPanelConfig = {
                           label: Array.isArray(verboseMap)
                             ? colname
                             : (verboseMap[colname] ?? colname),
+                          dataType:
+                            colnames && coltypes[colnames?.indexOf(colname)],
                         }))
                     : [];
-                const columnOptions = explore?.controls?.time_compare?.value
+                const columnOptions = hasTimeComparison
                   ? processComparisonColumns(
                       numericColumns || [],
-                      ensureIsArray(
-                        explore?.controls?.time_compare?.value,
-                      )[0]?.toString() || '',
+                      ensureIsArray(timeCompareValue)[0]?.toString() || '',
                     )
                   : numericColumns;
 
@@ -725,6 +740,7 @@ const config: ControlPanelConfig = {
                   removeIrrelevantConditions: chartStatus === 'success',
                   columnOptions,
                   verboseMap,
+                  extraColorChoices,
                 };
               },
             },
@@ -738,9 +754,7 @@ const config: ControlPanelConfig = {
         showCalculationType: false,
         showFullChoices: false,
       }),
-      visibility: ({ controls }) =>
-        isAggMode({ controls }) &&
-        isFeatureEnabled(FeatureFlag.TableV2TimeComparisonEnabled),
+      visibility: isAggMode,
     },
   ],
   formDataOverrides: formData => ({

@@ -42,6 +42,11 @@ def find_native_filter_datasets(metadata: dict[str, Any]) -> set[str]:
             dataset_uuid = target.get("datasetUuid")
             if dataset_uuid:
                 uuids.add(dataset_uuid)
+    for customization in metadata.get("chart_customization_config") or []:
+        for target in customization.get("targets") or []:
+            dataset_uuid = target.get("datasetUuid")
+            if dataset_uuid:
+                uuids.add(dataset_uuid)
     return uuids
 
 
@@ -140,6 +145,76 @@ def update_id_refs(  # pylint: disable=too-many-locals  # noqa: C901
                 id_map[old_id] for old_id in scope_excluded if old_id in id_map
             ]
 
+    # fix display control dataset references
+    for customization in (
+        fixed.get("metadata", {}).get("chart_customization_config") or []
+    ):
+        for target in customization.get("targets") or []:
+            dataset_uuid = target.pop("datasetUuid", None)
+            if dataset_uuid:
+                info = dataset_info.get(dataset_uuid)
+                if info:
+                    target["datasetId"] = info["datasource_id"]
+                else:
+                    # UUID present but unresolvable — remove stale integer ID
+                    # so the control fails visibly rather than binding to
+                    # whatever dataset happens to own that ID in this environment
+                    target.pop("datasetId", None)
+                    logger.warning(
+                        "Display control target references unknown dataset UUID %s; "
+                        "datasetId will not be restored",
+                        dataset_uuid,
+                    )
+
+    fixed = update_cross_filter_scoping(fixed, id_map)
+    return fixed
+
+
+def update_cross_filter_scoping(
+    config: dict[str, Any], id_map: dict[int, int]
+) -> dict[str, Any]:
+    # fix cross filter references
+    fixed = config.copy()
+
+    cross_filter_global_config = fixed.get("metadata", {}).get(
+        "global_chart_configuration", {}
+    )
+    scope_excluded = cross_filter_global_config.get("scope", {}).get("excluded", [])
+    if scope_excluded:
+        cross_filter_global_config["scope"]["excluded"] = [
+            id_map[old_id] for old_id in scope_excluded if old_id in id_map
+        ]
+
+    if "chart_configuration" in (metadata := fixed.get("metadata", {})):
+        # Build remapped configuration in a single pass for clarity/readability.
+        new_chart_configuration: dict[str, Any] = {}
+        for old_id_str, chart_config in metadata["chart_configuration"].items():
+            try:
+                old_id_int = int(old_id_str)
+            except (TypeError, ValueError):
+                continue
+
+            new_id = id_map.get(old_id_int)
+            if new_id is None:
+                continue
+
+            if isinstance(chart_config, dict):
+                chart_config["id"] = new_id
+
+                # Update cross filter scope excluded ids
+                scope = chart_config.get("crossFilters", {}).get("scope", {})
+                if isinstance(scope, dict):
+                    excluded_scope = scope.get("excluded", [])
+                    if excluded_scope:
+                        chart_config["crossFilters"]["scope"]["excluded"] = [
+                            id_map[old_id]
+                            for old_id in excluded_scope
+                            if old_id in id_map
+                        ]
+
+            new_chart_configuration[str(new_id)] = chart_config
+
+        metadata["chart_configuration"] = new_chart_configuration
     return fixed
 
 
@@ -178,6 +253,8 @@ def import_dashboard(  # noqa: C901
     # removed in https://github.com/apache/superset/pull/23228
     if "metadata" in config and "show_native_filters" in config["metadata"]:
         del config["metadata"]["show_native_filters"]
+
+    # Note: theme_id handling moved to higher level import logic
 
     for key, new_name in JSON_KEYS.items():
         if config.get(key) is not None:
