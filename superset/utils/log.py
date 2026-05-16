@@ -18,24 +18,21 @@ from __future__ import annotations
 
 import functools
 import inspect
-import json
 import logging
 import textwrap
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Any, Callable, cast, Literal, TYPE_CHECKING
+from typing import Any, Callable, cast, Literal
 
-from flask import g, request
+from flask import g, has_request_context, request
 from flask_appbuilder.const import API_URI_RIS_KEY
 from sqlalchemy.exc import SQLAlchemyError
 
 from superset.extensions import stats_logger_manager
+from superset.utils import json
 from superset.utils.core import get_user_id, LoggerLevel, to_int
-
-if TYPE_CHECKING:
-    from superset.stats_logger import BaseStatsLogger
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +88,31 @@ def get_logger_from_status(
 
 
 class AbstractEventLogger(ABC):
+    # Parameters that are passed under the `curated_payload` arg to the log method
+    curated_payload_params = {
+        "force",
+        "standalone",
+        "runAsync",
+        "json",
+        "csv",
+        "queryLimit",
+        "select_as_cta",
+    }
+    # Similarly, parameters that are passed under the `curated_form_data` arg
+    curated_form_data_params = {
+        "dashboardId",
+        "sliceId",
+        "viz_type",
+        "force",
+        "compare_lag",
+        "forecastPeriods",
+        "granularity_sqla",
+        "legendType",
+        "legendOrientation",
+        "show_legend",
+        "time_grain_sqla",
+    }
+
     def __call__(
         self,
         action: str,
@@ -120,6 +142,16 @@ class AbstractEventLogger(ABC):
             **self.payload_override,
         )
 
+    @classmethod
+    def curate_payload(cls, payload: dict[str, Any]) -> dict[str, Any]:
+        """Curate payload to only include relevant keys/safe keys"""
+        return {k: v for k, v in payload.items() if k in cls.curated_payload_params}
+
+    @classmethod
+    def curate_form_data(cls, payload: dict[str, Any]) -> dict[str, Any]:
+        """Curate form_data to only include relevant keys/safe keys"""
+        return {k: v for k, v in payload.items() if k in cls.curated_form_data_params}
+
     @abstractmethod
     def log(  # pylint: disable=too-many-arguments
         self,
@@ -129,6 +161,8 @@ class AbstractEventLogger(ABC):
         duration_ms: int | None,
         slice_id: int | None,
         referrer: str | None,
+        curated_payload: dict[str, Any] | None,
+        curated_form_data: dict[str, Any] | None,
         *args: Any,
         **kwargs: Any,
     ) -> None:
@@ -156,14 +190,15 @@ class AbstractEventLogger(ABC):
 
         # Whenever a user is not bounded to a session we
         # need to add them back before logging to capture user_id
-        if user_id is None:
+        if user_id is None and has_request_context():
             try:
-                db.session.add(g.user)
-                user_id = get_user_id()
-            except Exception as ex:  # pylint: disable=broad-except
-                logging.warning(ex)
+                actual_user = g.get("user", None)
+                if actual_user is not None:
+                    db.session.add(actual_user)
+                    user_id = get_user_id()
+            except Exception as ex:
+                logging.warning("Failed to add user to db session: %s", ex)
                 user_id = None
-
         payload = collect_request_payload()
         if object_ref:
             payload["object_ref"] = object_ref
@@ -180,6 +215,7 @@ class AbstractEventLogger(ABC):
                 "database_driver": database.driver,
             }
 
+        form_data: dict[str, Any] = {}
         if "form_data" in payload:
             form_data, _ = get_form_data()
             payload["form_data"] = form_data
@@ -207,6 +243,8 @@ class AbstractEventLogger(ABC):
             slice_id=slice_id,
             duration_ms=duration_ms,
             referrer=referrer,
+            curated_payload=self.curate_payload(payload),
+            curated_form_data=self.curate_form_data(form_data),
             **database_params,
         )
 
@@ -269,11 +307,13 @@ class AbstractEventLogger(ABC):
         """Decorator that uses the function name as the action"""
         return self._wrapper(f)
 
-    def log_this_with_context(self, **kwargs: Any) -> Callable[..., Any]:
+    def log_this_with_context(
+        self, allow_extra_payload: bool = False, **kwargs: Any
+    ) -> Callable[..., Any]:
         """Decorator that can override kwargs of log_context"""
 
         def func(f: Callable[..., Any]) -> Callable[..., Any]:
-            return self._wrapper(f, **kwargs)
+            return self._wrapper(f, allow_extra_payload=allow_extra_payload, **kwargs)
 
         return func
 
@@ -302,7 +342,7 @@ def get_event_logger_from_cfg_value(cfg_value: Any) -> AbstractEventLogger:
             textwrap.dedent(
                 """
                 In superset private config, EVENT_LOGGER has been assigned a class
-                object. In order to accomodate pre-configured instances without a
+                object. In order to accommodate pre-configured instances without a
                 default constructor, assignment of a class is deprecated and may no
                 longer work at some point in the future. Please assign an object
                 instance of a type that implements
@@ -321,7 +361,7 @@ def get_event_logger_from_cfg_value(cfg_value: Any) -> AbstractEventLogger:
             "of superset.utils.log.AbstractEventLogger."
         )
 
-    logging.info("Configured event logger of type %s", type(result))
+    logging.debug("Configured event logger of type %s", type(result))
     return cast(AbstractEventLogger, result)
 
 
@@ -344,6 +384,13 @@ class DBEventLogger(AbstractEventLogger):
         from superset.models.core import Log
 
         records = kwargs.get("records", [])
+        curated_payload = kwargs.get("curated_payload")
+
+        # If no records but curated_payload exists, use it as a single record
+        # This enables MCP middleware logging which passes curated_payload
+        if not records and curated_payload:
+            records = [curated_payload]
+
         logs = []
         for record in records:
             json_string: str | None
@@ -354,8 +401,8 @@ class DBEventLogger(AbstractEventLogger):
             log = Log(
                 action=action,
                 json=json_string,
-                dashboard_id=dashboard_id,
-                slice_id=slice_id,
+                dashboard_id=dashboard_id or record.get("dashboard_id"),
+                slice_id=slice_id or record.get("slice_id"),
                 duration_ms=duration_ms,
                 referrer=referrer,
                 user_id=user_id,
@@ -363,10 +410,21 @@ class DBEventLogger(AbstractEventLogger):
             logs.append(log)
         try:
             db.session.bulk_save_objects(logs)
-            db.session.commit()
+            db.session.commit()  # pylint: disable=consider-using-transaction
         except SQLAlchemyError as ex:
+            # Log errors but don't raise - logging failures should not break the
+            # application. Common in tests where the session may be in prepared state or
+            # db is locked
             logging.error("DBEventLogger failed to log event(s)")
             logging.exception(ex)
+            # Rollback to clean up the session state
+            try:
+                db.session.rollback()  # pylint: disable=consider-using-transaction
+            except Exception:  # pylint: disable=broad-except
+                # If rollback also fails, just continue - don't let issues crash the app
+                logging.error(
+                    "DBEventLogger failed to rollback the session after failure"
+                )
 
 
 class StdOutEventLogger(AbstractEventLogger):
@@ -380,6 +438,8 @@ class StdOutEventLogger(AbstractEventLogger):
         duration_ms: int | None,
         slice_id: int | None,
         referrer: str | None,
+        curated_payload: dict[str, Any] | None,
+        curated_form_data: dict[str, Any] | None,
         *args: Any,
         **kwargs: Any,
     ) -> None:
@@ -390,6 +450,8 @@ class StdOutEventLogger(AbstractEventLogger):
             duration_ms=duration_ms,
             slice_id=slice_id,
             referrer=referrer,
+            curated_payload=curated_payload,
+            curated_form_data=curated_form_data,
             **kwargs,
         )
         print("StdOutEventLogger: ", data)

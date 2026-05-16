@@ -16,7 +16,6 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React from 'react';
 import { render, screen } from 'spec/helpers/testing-library';
 import { DndItemType } from 'src/explore/components/DndItemType';
 import DatasourcePanelDragOption from '.';
@@ -24,10 +23,10 @@ import DatasourcePanelDragOption from '.';
 test('should render', async () => {
   render(
     <DatasourcePanelDragOption
-      value={{ metric_name: 'test' }}
+      value={{ metric_name: 'test', uuid: '1' }}
       type={DndItemType.Metric}
     />,
-    { useDnd: true },
+    { useDnd: true, useRedux: true, initialState: { explore: {} } },
   );
 
   expect(
@@ -39,10 +38,10 @@ test('should render', async () => {
 test('should have attribute draggable:true', async () => {
   render(
     <DatasourcePanelDragOption
-      value={{ metric_name: 'test' }}
+      value={{ metric_name: 'test', uuid: '1' }}
       type={DndItemType.Metric}
     />,
-    { useDnd: true },
+    { useDnd: true, useRedux: true, initialState: { explore: {} } },
   );
 
   expect(

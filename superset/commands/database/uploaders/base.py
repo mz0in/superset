@@ -14,14 +14,14 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-
 import logging
 from abc import abstractmethod
+from functools import partial
 from typing import Any, Optional, TypedDict
 
 import pandas as pd
 from flask_babel import lazy_gettext as _
-from sqlalchemy.exc import SQLAlchemyError
+from werkzeug.datastructures import FileStorage
 
 from superset import db
 from superset.commands.base import BaseCommand
@@ -35,8 +35,10 @@ from superset.commands.database.exceptions import (
 from superset.connectors.sqla.models import SqlaTable
 from superset.daos.database import DatabaseDAO
 from superset.models.core import Database
-from superset.sql_parse import Table
+from superset.sql.parse import Table
+from superset.utils.backports import StrEnum
 from superset.utils.core import get_user
+from superset.utils.decorators import on_error, transaction
 from superset.views.database.validators import schema_allows_file_upload
 
 logger = logging.getLogger(__name__)
@@ -44,10 +46,25 @@ logger = logging.getLogger(__name__)
 READ_CHUNK_SIZE = 1000
 
 
+class UploadFileType(StrEnum):
+    CSV = "csv"
+    EXCEL = "excel"
+    COLUMNAR = "columnar"
+
+
 class ReaderOptions(TypedDict, total=False):
     already_exists: str
-    column_labels: str
-    index_column: str
+    index_label: str
+    dataframe_index: bool
+
+
+class FileMetadataItem(TypedDict):
+    sheet_name: Optional[str]
+    column_names: list[str]
+
+
+class FileMetadata(TypedDict, total=False):
+    items: list[FileMetadataItem]
 
 
 class BaseDataReader:
@@ -57,15 +74,21 @@ class BaseDataReader:
     to read data from multiple file types (e.g. CSV, Excel, etc.)
     """
 
-    def __init__(self, options: dict[str, Any]) -> None:
-        self._options = options
+    def __init__(self, options: Optional[dict[str, Any]] = None) -> None:
+        self._options = options or {}
 
     @abstractmethod
-    def file_to_dataframe(self, file: Any) -> pd.DataFrame:
-        ...
+    def file_to_dataframe(self, file: FileStorage) -> pd.DataFrame: ...
+
+    @abstractmethod
+    def file_metadata(self, file: FileStorage) -> FileMetadata: ...
 
     def read(
-        self, file: Any, database: Database, table_name: str, schema_name: Optional[str]
+        self,
+        file: FileStorage,
+        database: Database,
+        table_name: str,
+        schema_name: Optional[str],
     ) -> None:
         self._dataframe_to_database(
             self.file_to_dataframe(file), database, table_name, schema_name
@@ -86,16 +109,20 @@ class BaseDataReader:
         """
         try:
             data_table = Table(table=table_name, schema=schema_name)
+            to_sql_kwargs = {
+                "chunksize": READ_CHUNK_SIZE,
+                "if_exists": self._options.get("already_exists", "fail"),
+                "index": self._options.get("dataframe_index", False),
+            }
+            if self._options.get("index_label") and self._options.get(
+                "dataframe_index"
+            ):
+                to_sql_kwargs["index_label"] = self._options.get("index_label")
             database.db_engine_spec.df_to_sql(
                 database,
                 data_table,
                 df,
-                to_sql_kwargs={
-                    "chunksize": READ_CHUNK_SIZE,
-                    "if_exists": self._options.get("already_exists", "fail"),
-                    "index": self._options.get("index_column"),
-                    "index_label": self._options.get("column_labels"),
-                },
+                to_sql_kwargs=to_sql_kwargs,
             )
         except ValueError as ex:
             raise DatabaseUploadFailed(
@@ -106,7 +133,8 @@ class BaseDataReader:
                 )
             ) from ex
         except Exception as ex:
-            raise DatabaseUploadFailed(exception=ex) from ex
+            message = ex.message if hasattr(ex, "message") and ex.message else str(ex)
+            raise DatabaseUploadFailed(message=message, exception=ex) from ex
 
 
 class UploadCommand(BaseCommand):
@@ -125,10 +153,17 @@ class UploadCommand(BaseCommand):
         self._file = file
         self._reader = reader
 
+    @transaction(on_error=partial(on_error, reraise=DatabaseUploadSaveMetadataFailed))
     def run(self) -> None:
         self.validate()
         if not self._model:
             return
+
+        self._table_name, self._schema = (
+            self._model.db_engine_spec.normalize_table_name_for_upload(
+                self._table_name, self._schema
+            )
+        )
 
         self._reader.read(self._file, self._model, self._table_name, self._schema)
 
@@ -152,12 +187,6 @@ class UploadCommand(BaseCommand):
             db.session.add(sqla_table)
 
         sqla_table.fetch_metadata()
-
-        try:
-            db.session.commit()
-        except SQLAlchemyError as ex:
-            db.session.rollback()
-            raise DatabaseUploadSaveMetadataFailed() from ex
 
     def validate(self) -> None:
         self._model = DatabaseDAO.find_by_id(self._model_id)

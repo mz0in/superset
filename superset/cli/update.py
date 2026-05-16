@@ -30,6 +30,7 @@ from flask_appbuilder.api import BaseApi
 from flask_appbuilder.api.manager import resolver
 
 import superset.utils.database as database_utils
+from superset.utils.decorators import transaction
 from superset.utils.encrypt import SecretsMigrator
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 @click.command()
 @with_appcontext
+@transaction()
 @click.option("--database_name", "-d", help="Database name to change")
 @click.option("--uri", "-u", help="Database URI to change")
 @click.option(
@@ -53,6 +55,7 @@ def set_database_uri(database_name: str, uri: str, skip_create: bool) -> None:
 
 @click.command()
 @with_appcontext
+@transaction()
 def sync_tags() -> None:
     """Rebuilds special tags (owner, type, favorited by)."""
     # pylint: disable=no-member
@@ -112,15 +115,19 @@ def re_encrypt_secrets(previous_secret_key: Optional[str] = None) -> None:
         "PREVIOUS_SECRET_KEY"
     )
     if previous_secret_key is None:
-        click.secho("A previous secret key must be provided", err=True)
-        sys.exit(1)
+        click.secho(
+            "No previous secret key provided; nothing to re-encrypt.",
+            fg="yellow",
+        )
+        return
     secrets_migrator = SecretsMigrator(previous_secret_key=previous_secret_key)
     try:
-        secrets_migrator.run()
-    except ValueError as exc:
-        click.secho(
-            f"An error occurred, "
-            f"probably an invalid previous secret key was provided. Error:[{exc}]",
-            err=True,
-        )
+        stats = secrets_migrator.run()
+    except Exception as exc:  # pylint: disable=broad-except
+        click.secho(f"Re-encryption failed: {exc}", err=True)
         sys.exit(1)
+    click.secho(
+        f"Re-encryption complete: {stats.re_encrypted} re-encrypted, "
+        f"{stats.skipped} skipped, {stats.null} null, {stats.failed} failed.",
+        fg="green",
+    )

@@ -15,20 +15,20 @@
 # specific language governing permissions and limitations
 # under the License.
 
+from __future__ import annotations
+
 import logging
 import time
 from contextlib import closing
-from typing import Any, Optional
+from typing import Any, cast
 
-from superset import app
 from superset.models.core import Database
-from superset.sql_parse import ParsedQuery
+from superset.sql.parse import SQLScript, SQLStatement
 from superset.sql_validators.base import BaseSQLValidator, SQLValidationAnnotation
 from superset.utils.core import QuerySource
 
 MAX_ERROR_ROWS = 10
 
-config = app.config
 logger = logging.getLogger(__name__)
 
 
@@ -44,17 +44,15 @@ class PrestoDBSQLValidator(BaseSQLValidator):
     @classmethod
     def validate_statement(
         cls,
-        statement: str,
+        statement: SQLStatement,
         database: Database,
         cursor: Any,
-    ) -> Optional[SQLValidationAnnotation]:
+    ) -> SQLValidationAnnotation | None:
         # pylint: disable=too-many-locals
         db_engine_spec = database.db_engine_spec
-        parsed_query = ParsedQuery(statement, engine=db_engine_spec.engine)
-        sql = parsed_query.stripped()
 
         # Hook to allow environment-specific mutation (usually comments) to the SQL
-        sql = database.mutate_sql_based_on_config(sql)
+        sql = database.mutate_sql_based_on_config(str(statement))
 
         # Transform the final statement to an explain call before sending it on
         # to presto to validate
@@ -136,11 +134,15 @@ class PrestoDBSQLValidator(BaseSQLValidator):
             )
         except Exception as ex:
             logger.exception("Unexpected error running validation query: %s", str(ex))
-            raise ex
+            raise
 
     @classmethod
     def validate(
-        cls, sql: str, schema: Optional[str], database: Database
+        cls,
+        sql: str,
+        catalog: str | None,
+        schema: str | None,
+        database: Database,
     ) -> list[SQLValidationAnnotation]:
         """
         Presto supports query-validation queries by running them with a
@@ -149,20 +151,27 @@ class PrestoDBSQLValidator(BaseSQLValidator):
         For example, "SELECT 1 FROM default.mytable" becomes "EXPLAIN (TYPE
         VALIDATE) SELECT 1 FROM default.mytable.
         """
-        parsed_query = ParsedQuery(sql, engine=database.db_engine_spec.engine)
-        statements = parsed_query.get_statements()
+        parsed_script = SQLScript(sql, engine=database.db_engine_spec.engine)
 
-        logger.info("Validating %i statement(s)", len(statements))
+        logger.info("Validating %i statement(s)", len(parsed_script.statements))
         # todo(hughhh): update this to use new database.get_raw_connection()
         # this function keeps stalling CI
-        with database.get_sqla_engine(schema, source=QuerySource.SQL_LAB) as engine:
+        with database.get_sqla_engine(
+            catalog=catalog,
+            schema=schema,
+            source=QuerySource.SQL_LAB,
+        ) as engine:
             # Sharing a single connection and cursor across the
             # execution of all statements (if many)
             annotations: list[SQLValidationAnnotation] = []
             with closing(engine.raw_connection()) as conn:
                 cursor = conn.cursor()
-                for statement in parsed_query.get_statements():
-                    annotation = cls.validate_statement(statement, database, cursor)
+                for statement in parsed_script.statements:
+                    annotation = cls.validate_statement(
+                        cast(SQLStatement, statement),
+                        database,
+                        cursor,
+                    )
                     if annotation:
                         annotations.append(annotation)
             logger.debug("Validation found %i error(s)", len(annotations))

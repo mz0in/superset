@@ -15,13 +15,13 @@
 # specific language governing permissions and limitations
 # under the License.
 
-import json
 import logging
 from typing import Any
 
 from superset import db, security_manager
 from superset.commands.exceptions import ImportFailedError
 from superset.models.dashboard import Dashboard
+from superset.utils import json
 from superset.utils.core import get_user
 
 logger = logging.getLogger(__name__)
@@ -42,6 +42,11 @@ def find_native_filter_datasets(metadata: dict[str, Any]) -> set[str]:
             dataset_uuid = target.get("datasetUuid")
             if dataset_uuid:
                 uuids.add(dataset_uuid)
+    for customization in metadata.get("chart_customization_config") or []:
+        for target in customization.get("targets") or []:
+            dataset_uuid = target.get("datasetUuid")
+            if dataset_uuid:
+                uuids.add(dataset_uuid)
     return uuids
 
 
@@ -57,7 +62,7 @@ def build_uuid_to_id_map(position: dict[str, Any]) -> dict[str, int]:
     }
 
 
-def update_id_refs(  # pylint: disable=too-many-locals
+def update_id_refs(  # pylint: disable=too-many-locals  # noqa: C901
     config: dict[str, Any],
     chart_ids: dict[str, int],
     dataset_info: dict[str, dict[str, Any]],
@@ -140,10 +145,80 @@ def update_id_refs(  # pylint: disable=too-many-locals
                 id_map[old_id] for old_id in scope_excluded if old_id in id_map
             ]
 
+    # fix display control dataset references
+    for customization in (
+        fixed.get("metadata", {}).get("chart_customization_config") or []
+    ):
+        for target in customization.get("targets") or []:
+            dataset_uuid = target.pop("datasetUuid", None)
+            if dataset_uuid:
+                info = dataset_info.get(dataset_uuid)
+                if info:
+                    target["datasetId"] = info["datasource_id"]
+                else:
+                    # UUID present but unresolvable — remove stale integer ID
+                    # so the control fails visibly rather than binding to
+                    # whatever dataset happens to own that ID in this environment
+                    target.pop("datasetId", None)
+                    logger.warning(
+                        "Display control target references unknown dataset UUID %s; "
+                        "datasetId will not be restored",
+                        dataset_uuid,
+                    )
+
+    fixed = update_cross_filter_scoping(fixed, id_map)
     return fixed
 
 
-def import_dashboard(
+def update_cross_filter_scoping(
+    config: dict[str, Any], id_map: dict[int, int]
+) -> dict[str, Any]:
+    # fix cross filter references
+    fixed = config.copy()
+
+    cross_filter_global_config = fixed.get("metadata", {}).get(
+        "global_chart_configuration", {}
+    )
+    scope_excluded = cross_filter_global_config.get("scope", {}).get("excluded", [])
+    if scope_excluded:
+        cross_filter_global_config["scope"]["excluded"] = [
+            id_map[old_id] for old_id in scope_excluded if old_id in id_map
+        ]
+
+    if "chart_configuration" in (metadata := fixed.get("metadata", {})):
+        # Build remapped configuration in a single pass for clarity/readability.
+        new_chart_configuration: dict[str, Any] = {}
+        for old_id_str, chart_config in metadata["chart_configuration"].items():
+            try:
+                old_id_int = int(old_id_str)
+            except (TypeError, ValueError):
+                continue
+
+            new_id = id_map.get(old_id_int)
+            if new_id is None:
+                continue
+
+            if isinstance(chart_config, dict):
+                chart_config["id"] = new_id
+
+                # Update cross filter scope excluded ids
+                scope = chart_config.get("crossFilters", {}).get("scope", {})
+                if isinstance(scope, dict):
+                    excluded_scope = scope.get("excluded", [])
+                    if excluded_scope:
+                        chart_config["crossFilters"]["scope"]["excluded"] = [
+                            id_map[old_id]
+                            for old_id in excluded_scope
+                            if old_id in id_map
+                        ]
+
+            new_chart_configuration[str(new_id)] = chart_config
+
+        metadata["chart_configuration"] = new_chart_configuration
+    return fixed
+
+
+def import_dashboard(  # noqa: C901
     config: dict[str, Any],
     overwrite: bool = False,
     ignore_permissions: bool = False,
@@ -153,9 +228,12 @@ def import_dashboard(
         "Dashboard",
     )
     existing = db.session.query(Dashboard).filter_by(uuid=config["uuid"]).first()
+    user = get_user()
     if existing:
-        if overwrite and can_write and get_user():
-            if not security_manager.can_access_dashboard(existing):
+        if overwrite and can_write and user:
+            if not security_manager.can_access_dashboard(existing) or (
+                user not in existing.owners and not security_manager.is_admin()
+            ):
                 raise ImportFailedError(
                     "A dashboard already exists and user doesn't "
                     "have permissions to overwrite it"
@@ -176,6 +254,8 @@ def import_dashboard(
     if "metadata" in config and "show_native_filters" in config["metadata"]:
         del config["metadata"]["show_native_filters"]
 
+    # Note: theme_id handling moved to higher level import logic
+
     for key, new_name in JSON_KEYS.items():
         if config.get(key) is not None:
             value = config.pop(key)
@@ -188,7 +268,7 @@ def import_dashboard(
     if dashboard.id is None:
         db.session.flush()
 
-    if user := get_user():
+    if (user := get_user()) and user not in dashboard.owners:
         dashboard.owners.append(user)
 
     return dashboard

@@ -18,21 +18,27 @@
 
 from __future__ import annotations
 
-import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from io import BytesIO
 from typing import Any, cast
 from zipfile import is_zipfile, ZipFile
 
 from deprecation import deprecated
-from flask import make_response, render_template, request, Response, send_file
-from flask_appbuilder.api import expose, protect, rison, safe
+from flask import (
+    current_app as app,
+    make_response,
+    render_template,
+    request,
+    Response,
+    send_file,
+)
+from flask_appbuilder.api import expose, protect, rison as parse_rison, safe
 from flask_appbuilder.models.sqla.interface import SQLAInterface
 from marshmallow import ValidationError
 from sqlalchemy.exc import NoSuchTableError, OperationalError, SQLAlchemyError
 
-from superset import app, event_logger
+from superset import event_logger
 from superset.commands.database.create import CreateDatabaseCommand
 from superset.commands.database.delete import DeleteDatabaseCommand
 from superset.commands.database.exceptions import (
@@ -42,22 +48,26 @@ from superset.commands.database.exceptions import (
     DatabaseDeleteFailedError,
     DatabaseInvalidError,
     DatabaseNotFoundError,
-    DatabaseTablesUnexpectedError,
     DatabaseUpdateFailedError,
     InvalidParametersError,
 )
 from superset.commands.database.export import ExportDatabasesCommand
 from superset.commands.database.importers.dispatcher import ImportDatabasesCommand
-from superset.commands.database.ssh_tunnel.delete import DeleteSSHTunnelCommand
+from superset.commands.database.oauth2 import OAuth2StoreTokenCommand
 from superset.commands.database.ssh_tunnel.exceptions import (
     SSHTunnelDatabasePortError,
-    SSHTunnelDeleteFailedError,
     SSHTunnelingNotEnabledError,
 )
+from superset.commands.database.sync_permissions import SyncPermissionsCommand
 from superset.commands.database.tables import TablesDatabaseCommand
 from superset.commands.database.test_connection import TestConnectionDatabaseCommand
 from superset.commands.database.update import UpdateDatabaseCommand
-from superset.commands.database.uploaders.base import UploadCommand
+from superset.commands.database.uploaders.base import (
+    BaseDataReader,
+    UploadCommand,
+    UploadFileType,
+)
+from superset.commands.database.uploaders.columnar_reader import ColumnarReader
 from superset.commands.database.uploaders.csv_reader import CSVReader
 from superset.commands.database.uploaders.excel_reader import ExcelReader
 from superset.commands.database.validate import ValidateDatabaseParametersCommand
@@ -68,11 +78,12 @@ from superset.commands.importers.exceptions import (
 )
 from superset.commands.importers.v1.utils import get_contents_from_bundle
 from superset.constants import MODEL_API_RW_METHOD_PERMISSION_MAP, RouteMethod
-from superset.daos.database import DatabaseDAO, DatabaseUserOAuth2TokensDAO
+from superset.daos.database import DatabaseDAO
 from superset.databases.decorators import check_table_access
 from superset.databases.filters import DatabaseFilter, DatabaseUploadEnabledFilter
 from superset.databases.schemas import (
-    CSVUploadPostSchema,
+    CatalogsResponseSchema,
+    database_catalogs_query_schema,
     database_schemas_query_schema,
     database_tables_query_schema,
     DatabaseConnectionSchema,
@@ -84,7 +95,6 @@ from superset.databases.schemas import (
     DatabaseTablesResponse,
     DatabaseTestConnectionSchema,
     DatabaseValidateParametersSchema,
-    ExcelUploadPostSchema,
     get_export_ids_schema,
     OAuth2ProviderResponseSchema,
     openapi_spec_methods_override,
@@ -93,6 +103,9 @@ from superset.databases.schemas import (
     SelectStarResponseSchema,
     TableExtraMetadataResponseSchema,
     TableMetadataResponseSchema,
+    UploadFileMetadata,
+    UploadFileMetadataPostSchema,
+    UploadPostSchema,
     ValidateSQLRequest,
     ValidateSQLResponse,
 )
@@ -102,7 +115,7 @@ from superset.errors import ErrorLevel, SupersetError, SupersetErrorType
 from superset.exceptions import (
     DatabaseNotFoundException,
     InvalidPayloadSchemaError,
-    OAuth2Error,
+    OAuth2RedirectError,
     SupersetErrorsException,
     SupersetException,
     SupersetSecurityException,
@@ -110,18 +123,26 @@ from superset.exceptions import (
 )
 from superset.extensions import security_manager
 from superset.models.core import Database
-from superset.sql_parse import Table
+from superset.sql.parse import Table
 from superset.superset_typing import FlaskResponse
-from superset.utils.core import error_msg_from_exception, parse_js_uri_path_item
+from superset.utils import json
+from superset.utils.core import (
+    error_msg_from_exception,
+    get_username,
+    parse_js_uri_path_item,
+)
+from superset.utils.decorators import transaction
 from superset.utils.oauth2 import decode_oauth2_state
 from superset.utils.ssh_tunnel import mask_password_info
-from superset.views.base import json_errors_response
 from superset.views.base_api import (
     BaseSupersetModelRestApi,
+    RelatedFieldFilter,
     requires_form_data,
     requires_json,
     statsd_metrics,
 )
+from superset.views.error_handling import handle_api_exception, json_error_response
+from superset.views.filters import BaseFilterRelatedUsers, FilterRelatedOwners
 
 logger = logging.getLogger(__name__)
 
@@ -136,9 +157,11 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
         RouteMethod.RELATED,
         "tables",
         "table_metadata",
+        "table_metadata_deprecated",
         "table_extra_metadata",
         "table_extra_metadata_deprecated",
         "select_star",
+        "catalogs",
         "schemas",
         "test_connection",
         "related_objects",
@@ -149,9 +172,10 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
         "delete_ssh_tunnel",
         "schemas_access_for_file_upload",
         "get_connection",
-        "csv_upload",
-        "excel_upload",
+        "upload_metadata",
+        "upload",
         "oauth2",
+        "sync_permissions",
     }
 
     resource_name = "database"
@@ -194,6 +218,7 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
         "changed_by.last_name",
         "created_by.first_name",
         "created_by.last_name",
+        "configuration_method",
         "database_name",
         "explore_database_id",
         "expose_in_sqllab",
@@ -203,6 +228,7 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
         "uuid",
         "disable_data_preview",
         "disable_drill_to_detail",
+        "allow_multi_catalog",
         "engine_information",
     ]
     add_columns = [
@@ -255,6 +281,7 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
     edit_model_schema = DatabasePutSchema()
 
     apispec_parameter_schemas = {
+        "database_catalogs_query_schema": database_catalogs_query_schema,
         "database_schemas_query_schema": database_schemas_query_schema,
         "database_tables_query_schema": database_tables_query_schema,
         "get_export_ids_schema": get_export_ids_schema,
@@ -262,7 +289,7 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
 
     openapi_spec_tag = "Database"
     openapi_spec_component_schemas = (
-        CSVUploadPostSchema,
+        CatalogsResponseSchema,
         DatabaseConnectionSchema,
         DatabaseFunctionNamesResponse,
         DatabaseSchemaAccessForFileUploadResponse,
@@ -270,17 +297,26 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
         DatabaseTablesResponse,
         DatabaseTestConnectionSchema,
         DatabaseValidateParametersSchema,
-        ExcelUploadPostSchema,
         TableExtraMetadataResponseSchema,
         TableMetadataResponseSchema,
         SelectStarResponseSchema,
         SchemasResponseSchema,
+        UploadFileMetadataPostSchema,
+        UploadFileMetadata,
+        UploadPostSchema,
         ValidateSQLRequest,
         ValidateSQLResponse,
     )
 
     openapi_spec_methods = openapi_spec_methods_override
     """ Overrides GET methods OpenApi descriptions """
+
+    related_field_filters = {
+        "changed_by": RelatedFieldFilter("first_name", FilterRelatedOwners),
+    }
+    base_related_field_filters = {
+        "changed_by": [["id", BaseFilterRelatedUsers, lambda: []]],
+    }
 
     @expose("/<int:pk>/connection", methods=("GET",))
     @protect()
@@ -319,8 +355,8 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
             "result": database_connection_schema.dump(database, many=False),
         }
         try:
-            if ssh_tunnel := DatabaseDAO.get_ssh_tunnel(pk):
-                response["result"]["ssh_tunnel"] = ssh_tunnel.data
+            if database and database.ssh_tunnel:
+                response["result"]["ssh_tunnel"] = database.ssh_tunnel.data
             return self.response(200, **response)
         except SupersetException as ex:
             return self.response(ex.status, message=ex.message)
@@ -357,9 +393,10 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
         """
         data = self.get_headless(pk, **kwargs)
         try:
-            if ssh_tunnel := DatabaseDAO.get_ssh_tunnel(pk):
+            database = DatabaseDAO.find_by_id(pk)
+            if database and database.ssh_tunnel:
                 payload = data.json
-                payload["result"]["ssh_tunnel"] = ssh_tunnel.data
+                payload["result"]["ssh_tunnel"] = database.ssh_tunnel.data
                 return payload
             return data
         except SupersetException as ex:
@@ -367,14 +404,13 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
 
     @expose("/", methods=("POST",))
     @protect()
-    @safe
     @statsd_metrics
     @event_logger.log_this_with_context(
         action=lambda self, *args, **kwargs: f"{self.__class__.__name__}.post",
         log_to_statsd=False,
     )
     @requires_json
-    def post(self) -> FlaskResponse:
+    def post(self) -> FlaskResponse:  # noqa: C901
         """Create a new database.
         ---
         post:
@@ -411,7 +447,7 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
             item = self.add_model_schema.load(request.json)
         # This validates custom Schema with custom validations
         except ValidationError as error:
-            return self.response_400(message=error.messages)
+            return self.response_422(message=error.messages)
         try:
             new_model = CreateDatabaseCommand(item).run()
             item["uuid"] = new_model.uuid
@@ -428,15 +464,17 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
 
             # Return SSH Tunnel and hide passwords if any
             if item.get("ssh_tunnel"):
-                item["ssh_tunnel"] = mask_password_info(new_model.ssh_tunnel)
+                item["ssh_tunnel"] = mask_password_info(item["ssh_tunnel"])
 
             return self.response(201, id=new_model.id, result=item)
+        except OAuth2RedirectError:
+            raise
         except DatabaseInvalidError as ex:
             return self.response_422(message=ex.normalized_messages())
         except DatabaseConnectionFailedError as ex:
             return self.response_422(message=str(ex))
         except SupersetErrorsException as ex:
-            return json_errors_response(errors=ex.errors, status=ex.status)
+            return json_error_response(ex.errors, status=ex.status)
         except DatabaseCreateFailedError as ex:
             logger.error(
                 "Error creating model %s: %s",
@@ -514,7 +552,7 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
                 item["parameters"] = changed_model.parameters
             # Return SSH Tunnel and hide passwords if any
             if item.get("ssh_tunnel"):
-                item["ssh_tunnel"] = mask_password_info(changed_model.ssh_tunnel)
+                item["ssh_tunnel"] = mask_password_info(item["ssh_tunnel"])
             return self.response(200, id=changed_model.id, result=item)
         except DatabaseNotFoundError:
             return self.response_404()
@@ -538,7 +576,7 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
     @safe
     @statsd_metrics
     @event_logger.log_this_with_context(
-        action=lambda self, *args, **kwargs: f"{self.__class__.__name__}" f".delete",
+        action=lambda self, *args, **kwargs: f"{self.__class__.__name__}.delete",
         log_to_statsd=False,
     )
     def delete(self, pk: int) -> Response:
@@ -588,13 +626,124 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
             )
             return self.response_422(message=str(ex))
 
-    @expose("/<int:pk>/schemas/")
+    @expose("/<int:pk>/sync_permissions/", methods=("POST",))
     @protect()
-    @safe
-    @rison(database_schemas_query_schema)
     @statsd_metrics
     @event_logger.log_this_with_context(
-        action=lambda self, *args, **kwargs: f"{self.__class__.__name__}" f".schemas",
+        action=lambda self, *args, **kwargs: f"{self.__class__.__name__}"
+        f".sync-permissions",
+        log_to_statsd=False,
+    )
+    def sync_permissions(self, pk: int, **kwargs: Any) -> FlaskResponse:
+        """Sync all permissions for a database connection.
+        ---
+        post:
+          summary: Re-sync all permissions for a database connection
+          parameters:
+          - in: path
+            schema:
+              type: integer
+            name: pk
+            description: The database connection ID
+          responses:
+            200:
+              description: Task created to sync permissions.
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+            400:
+              $ref: '#/components/responses/400'
+            401:
+              $ref: '#/components/responses/401'
+            404:
+              $ref: '#/components/responses/404'
+            500:
+              $ref: '#/components/responses/500'
+        """
+        current_username = get_username()
+        SyncPermissionsCommand(
+            pk,
+            current_username,
+        ).run()
+        if app.config["SYNC_DB_PERMISSIONS_IN_ASYNC_MODE"]:
+            return self.response(202, message="Async task created to sync permissions")
+        return self.response(200, message="Permissions successfully synced")
+
+    @expose("/<int:pk>/catalogs/")
+    @protect()
+    @parse_rison(database_catalogs_query_schema)
+    @statsd_metrics
+    @event_logger.log_this_with_context(
+        action=lambda self, *args, **kwargs: f"{self.__class__.__name__}.catalogs",
+        log_to_statsd=False,
+    )
+    def catalogs(self, pk: int, **kwargs: Any) -> FlaskResponse:
+        """Get all catalogs from a database.
+        ---
+        get:
+          summary: Get all catalogs from a database
+          parameters:
+          - in: path
+            schema:
+              type: integer
+            name: pk
+            description: The database id
+          - in: query
+            name: q
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/database_catalogs_query_schema'
+          responses:
+            200:
+              description: A List of all catalogs from the database
+              content:
+                application/json:
+                  schema:
+                    $ref: "#/components/schemas/CatalogsResponseSchema"
+            400:
+              $ref: '#/components/responses/400'
+            401:
+              $ref: '#/components/responses/401'
+            404:
+              $ref: '#/components/responses/404'
+            500:
+              $ref: '#/components/responses/500'
+        """
+        database = DatabaseDAO.find_by_id(pk)
+        if not database:
+            return self.response_404()
+        try:
+            catalogs = database.get_all_catalog_names(
+                cache=database.catalog_cache_enabled,
+                cache_timeout=database.catalog_cache_timeout or None,
+                force=kwargs["rison"].get("force", False),
+            )
+            catalogs = security_manager.get_catalogs_accessible_by_user(
+                database,
+                catalogs,
+            )
+            return self.response(200, result=list(catalogs))
+        except OperationalError:
+            return self.response(
+                500,
+                message="There was an error connecting to the database",
+            )
+        except OAuth2RedirectError:
+            raise
+        except SupersetException as ex:
+            return self.response(ex.status, message=ex.message)
+
+    @expose("/<int:pk>/schemas/")
+    @protect()
+    @parse_rison(database_schemas_query_schema)
+    @statsd_metrics
+    @event_logger.log_this_with_context(
+        action=lambda self, *args, **kwargs: f"{self.__class__.__name__}.schemas",
         log_to_statsd=False,
     )
     def schemas(self, pk: int, **kwargs: Any) -> FlaskResponse:
@@ -634,27 +783,52 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
         if not database:
             return self.response_404()
         try:
+            params = kwargs["rison"]
+            catalog = params.get("catalog")
             schemas = database.get_all_schema_names(
+                catalog=catalog,
                 cache=database.schema_cache_enabled,
                 cache_timeout=database.schema_cache_timeout or None,
-                force=kwargs["rison"].get("force", False),
+                force=params.get("force", False),
             )
-            schemas = security_manager.get_schemas_accessible_by_user(database, schemas)
-            return self.response(200, result=schemas)
+            schemas = security_manager.get_schemas_accessible_by_user(
+                database,
+                catalog,
+                schemas,
+            )
+            if params.get("upload_allowed"):
+                if not database.allow_file_upload:
+                    return self.response(200, result=[])
+                if allowed_schemas := database.get_schema_access_for_file_upload():
+                    # some databases might return the list of schemas in uppercase,
+                    # while the list of allowed schemas is manually inputted so
+                    # could be lowercase
+                    allowed_schemas = {schema.lower() for schema in allowed_schemas}
+                    return self.response(
+                        200,
+                        result=[
+                            schema
+                            for schema in schemas
+                            if schema.lower() in allowed_schemas
+                        ],
+                    )
+            return self.response(200, result=list(schemas))
         except OperationalError:
             return self.response(
                 500, message="There was an error connecting to the database"
             )
+        except OAuth2RedirectError:
+            raise
         except SupersetException as ex:
             return self.response(ex.status, message=ex.message)
 
     @expose("/<int:pk>/tables/")
     @protect()
-    @safe
-    @rison(database_tables_query_schema)
+    @parse_rison(database_tables_query_schema)
     @statsd_metrics
+    @handle_api_exception
     @event_logger.log_this_with_context(
-        action=lambda self, *args, **kwargs: f"{self.__class__.__name__}" f".tables",
+        action=lambda self, *args, **kwargs: f"{self.__class__.__name__}.tables",
         log_to_statsd=False,
     )
     def tables(self, pk: int, **kwargs: Any) -> FlaskResponse:
@@ -702,18 +876,12 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
               $ref: '#/components/responses/500'
         """
         force = kwargs["rison"].get("force", False)
+        catalog_name = kwargs["rison"].get("catalog_name")
         schema_name = kwargs["rison"].get("schema_name", "")
 
-        try:
-            command = TablesDatabaseCommand(pk, schema_name, force)
-            payload = command.run()
-            return self.response(200, **payload)
-        except DatabaseNotFoundError:
-            return self.response_404()
-        except SupersetException as ex:
-            return self.response(ex.status, message=ex.message)
-        except DatabaseTablesUnexpectedError as ex:
-            return self.response_422(ex.message)
+        command = TablesDatabaseCommand(pk, catalog_name, schema_name, force)
+        payload = command.run()
+        return self.response(200, **payload)
 
     @expose("/<int:pk>/table/<path:table_name>/<schema_name>/", methods=("GET",))
     @protect()
@@ -722,10 +890,10 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
     @statsd_metrics
     @event_logger.log_this_with_context(
         action=lambda self, *args, **kwargs: f"{self.__class__.__name__}"
-        f".table_metadata",
+        f".table_metadata_deprecated",
         log_to_statsd=False,
     )
-    def table_metadata(
+    def table_metadata_deprecated(
         self, database: Database, table_name: str, schema_name: str
     ) -> FlaskResponse:
         """Get database table metadata.
@@ -766,16 +934,16 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
             500:
               $ref: '#/components/responses/500'
         """
-        self.incr_stats("init", self.table_metadata.__name__)
+        self.incr_stats("init", self.table_metadata_deprecated.__name__)
         try:
-            table_info = get_table_metadata(database, table_name, schema_name)
+            table_info = get_table_metadata(database, Table(table_name, schema_name))
         except SQLAlchemyError as ex:
-            self.incr_stats("error", self.table_metadata.__name__)
+            self.incr_stats("error", self.table_metadata_deprecated.__name__)
             return self.response_422(error_msg_from_exception(ex))
         except SupersetException as ex:
             return self.response(ex.status, message=ex.message)
 
-        self.incr_stats("success", self.table_metadata.__name__)
+        self.incr_stats("success", self.table_metadata_deprecated.__name__)
         return self.response(200, **table_info)
 
     @expose("/<int:pk>/table_extra/<path:table_name>/<schema_name>/", methods=("GET",))
@@ -783,7 +951,7 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
     @check_table_access
     @safe
     @statsd_metrics
-    @deprecated(deprecated_in="4.0", removed_in="5.0")
+    @deprecated(deprecated_in="4.0")
     @event_logger.log_this_with_context(
         action=lambda self, *args, **kwargs: f"{self.__class__.__name__}"
         f".table_extra_metadata_deprecated",
@@ -844,7 +1012,86 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
         payload = database.db_engine_spec.get_extra_table_metadata(database, table)
         return self.response(200, **payload)
 
-    @expose("/<int:pk>/table_metadata/extra/", methods=("GET",))
+    @expose("/<int:pk>/table_metadata/", methods=["GET"])
+    @protect()
+    @statsd_metrics
+    @event_logger.log_this_with_context(
+        action=lambda self, *args, **kwargs: f"{self.__class__.__name__}"
+        f".table_metadata",
+        log_to_statsd=False,
+    )
+    def table_metadata(self, pk: int) -> FlaskResponse:
+        """
+        Get metadata for a given table.
+
+        Optionally, a schema and a catalog can be passed, if different from the default
+        ones.
+        ---
+        get:
+          summary: Get table metadata
+          description: >-
+            Metadata associated with the table (columns, indexes, etc.)
+          parameters:
+          - in: path
+            schema:
+              type: integer
+            name: pk
+            description: The database id
+          - in: query
+            schema:
+              type: string
+            name: name
+            required: true
+            description: Table name
+          - in: query
+            schema:
+              type: string
+            name: schema
+            description: >-
+              Optional table schema, if not passed default schema will be used
+          - in: query
+            schema:
+              type: string
+            name: catalog
+            description: >-
+              Optional table catalog, if not passed default catalog will be used
+          responses:
+            200:
+              description: Table metadata information
+              content:
+                application/json:
+                  schema:
+                    $ref: "#/components/schemas/TableExtraMetadataResponseSchema"
+            401:
+              $ref: '#/components/responses/401'
+            404:
+              $ref: '#/components/responses/404'
+            500:
+              $ref: '#/components/responses/500'
+        """
+        self.incr_stats("init", self.table_metadata.__name__)
+
+        database = DatabaseDAO.find_by_id(pk)
+        if database is None:
+            raise DatabaseNotFoundException("No such database")
+
+        try:
+            parameters = QualifiedTableSchema().load(request.args)
+        except ValidationError as ex:
+            raise InvalidPayloadSchemaError(ex) from ex
+
+        table = Table(parameters["name"], parameters["schema"], parameters["catalog"])
+        try:
+            security_manager.raise_for_access(database=database, table=table)
+        except SupersetSecurityException as ex:
+            # instead of raising 403, raise 404 to hide table existence
+            raise TableNotFoundException("No such table") from ex
+
+        payload = database.db_engine_spec.get_table_metadata(database, table)
+
+        return self.response(200, **payload)
+
+    @expose("/<int:pk>/table_metadata/extra/", methods=["GET"])
     @protect()
     @statsd_metrics
     @event_logger.log_this_with_context(
@@ -978,7 +1225,8 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
         self.incr_stats("init", self.select_star.__name__)
         try:
             result = database.select_star(
-                table_name, schema_name, latest_partition=True
+                Table(table_name, schema_name, database.get_default_catalog()),
+                latest_partition=True,
             )
         except NoSuchTableError:
             self.incr_stats("error", self.select_star.__name__)
@@ -1163,6 +1411,7 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
             return self.response_404()
 
     @expose("/oauth2/", methods=["GET"])
+    @transaction()
     @event_logger.log_this_with_context(
         action=lambda self, *args, **kwargs: f"{self.__class__.__name__}.oauth2",
         log_to_statsd=True,
@@ -1208,53 +1457,15 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
               $ref: '#/components/responses/500'
         """
         parameters = OAuth2ProviderResponseSchema().load(request.args)
+        command = OAuth2StoreTokenCommand(parameters)
+        command.run()
 
-        if "error" in parameters:
-            raise OAuth2Error(parameters["error"])
-
-        # note that when decoding the state we will perform JWT validation, preventing a
-        # malicious payload that would insert a bogus database token, or delete an
-        # existing one.
         state = decode_oauth2_state(parameters["state"])
-
-        # exchange code for access/refresh tokens
-        database = DatabaseDAO.find_by_id(state["database_id"])
-        if database is None:
-            return self.response_404()
-
-        oauth2_config = database.get_oauth2_config()
-        if oauth2_config is None:
-            raise OAuth2Error("No configuration found for OAuth2")
-
-        token_response = database.db_engine_spec.get_oauth2_token(
-            oauth2_config,
-            parameters["code"],
-        )
-
-        # delete old tokens
-        existing = DatabaseUserOAuth2TokensDAO.find_one_or_none(
-            user_id=state["user_id"],
-            database_id=state["database_id"],
-        )
-        if existing:
-            DatabaseUserOAuth2TokensDAO.delete([existing], commit=True)
-
-        # store tokens
-        expiration = datetime.now() + timedelta(seconds=token_response["expires_in"])
-        DatabaseUserOAuth2TokensDAO.create(
-            attributes={
-                "user_id": state["user_id"],
-                "database_id": state["database_id"],
-                "access_token": token_response["access_token"],
-                "access_token_expiration": expiration,
-                "refresh_token": token_response.get("refresh_token"),
-            },
-            commit=True,
-        )
+        tab_id = state["tab_id"]
 
         # return blank page that closes itself
         return make_response(
-            render_template("superset/oauth2.html", tab_id=state["tab_id"]),
+            render_template("superset/oauth2.html", tab_id=tab_id),
             200,
         )
 
@@ -1262,7 +1473,7 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
     @protect()
     @safe
     @statsd_metrics
-    @rison(get_export_ids_schema)
+    @parse_rison(get_export_ids_schema)
     @event_logger.log_this_with_context(
         action=lambda self, *args, **kwargs: f"{self.__class__.__name__}.export",
         log_to_statsd=False,
@@ -1380,6 +1591,14 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
                         the private_key should be provided in the following format:
                         `{"databases/MyDatabase.yaml": "my_private_key_password"}`.
                       type: string
+                    encrypted_extra_secrets:
+                      description: >-
+                        JSON map of sensitive values for masked_encrypted_extra fields.
+                        Keys are file paths (e.g., "databases/db.yaml") and values
+                        are JSON objects mapping JSONPath expressions to secrets.
+                        (e.g., `{"databases/MyDatabase.yaml":
+                        {"$.credentials_info.private_key": "actual_key"}}`).
+                      type: string
           responses:
             200:
               description: Database import result
@@ -1431,6 +1650,11 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
             if "ssh_tunnel_private_key_passwords" in request.form
             else None
         )
+        encrypted_extra_secrets = (
+            json.loads(request.form["encrypted_extra_secrets"])
+            if "encrypted_extra_secrets" in request.form
+            else None
+        )
 
         command = ImportDatabasesCommand(
             contents,
@@ -1439,23 +1663,80 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
             ssh_tunnel_passwords=ssh_tunnel_passwords,
             ssh_tunnel_private_keys=ssh_tunnel_private_keys,
             ssh_tunnel_priv_key_passwords=ssh_tunnel_priv_key_passwords,
+            encrypted_extra_secrets=encrypted_extra_secrets,
         )
         command.run()
         return self.response(200, message="OK")
 
-    @expose("/<int:pk>/csv_upload/", methods=("POST",))
+    @expose("/upload_metadata/", methods=("POST",))
     @protect()
     @statsd_metrics
     @event_logger.log_this_with_context(
-        action=lambda self, *args, **kwargs: f"{self.__class__.__name__}.import_",
+        action=(
+            lambda self, *args, **kwargs: f"{self.__class__.__name__}.upload_metadata"
+        ),
         log_to_statsd=False,
     )
     @requires_form_data
-    def csv_upload(self, pk: int) -> Response:
-        """Upload a CSV file into a database.
+    def upload_metadata(self) -> Response:
+        """Upload a file and returns file metadata.
         ---
         post:
-          summary: Upload a CSV file to a database table
+          summary: Upload a file and returns file metadata
+          requestBody:
+            required: true
+            content:
+              multipart/form-data:
+                schema:
+                  $ref: '#/components/schemas/UploadFileMetadataPostSchema'
+          responses:
+            200:
+              description: Upload response
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      result:
+                        $ref: '#/components/schemas/UploadFileMetadata'
+            400:
+              $ref: '#/components/responses/400'
+            401:
+              $ref: '#/components/responses/401'
+            404:
+              $ref: '#/components/responses/404'
+            500:
+              $ref: '#/components/responses/500'
+        """
+        try:
+            request_form = request.form.to_dict()
+            request_form["file"] = request.files.get("file")
+            parameters = UploadFileMetadataPostSchema().load(request_form)
+        except ValidationError as error:
+            return self.response_400(message=error.messages)
+        if parameters["type"] == UploadFileType.CSV.value:
+            metadata = CSVReader(parameters).file_metadata(parameters["file"])
+        elif parameters["type"] == UploadFileType.EXCEL.value:
+            metadata = ExcelReader(parameters).file_metadata(parameters["file"])
+        elif parameters["type"] == UploadFileType.COLUMNAR.value:
+            metadata = ColumnarReader(parameters).file_metadata(parameters["file"])
+        else:
+            self.response_400(message="Unexpected Invalid file type")
+        return self.response(200, result=UploadFileMetadata().dump(metadata))
+
+    @expose("/<int:pk>/upload/", methods=("POST",))
+    @protect()
+    @statsd_metrics
+    @event_logger.log_this_with_context(
+        action=lambda self, *args, **kwargs: f"{self.__class__.__name__}.upload",
+        log_to_statsd=False,
+    )
+    @requires_form_data
+    def upload(self, pk: int) -> Response:
+        """Upload a file into a database.
+        ---
+        post:
+          summary: Upload a file to a database table
           parameters:
           - in: path
             schema:
@@ -1466,9 +1747,9 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
             content:
               multipart/form-data:
                 schema:
-                  $ref: '#/components/schemas/CSVUploadPostSchema'
+                  $ref: '#/components/schemas/UploadPostSchema'
           responses:
-            200:
+            201:
               description: CSV upload response
               content:
                 application/json:
@@ -1491,77 +1772,26 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
         try:
             request_form = request.form.to_dict()
             request_form["file"] = request.files.get("file")
-            parameters = CSVUploadPostSchema().load(request_form)
+            parameters = UploadPostSchema().load(request_form)
+            reader: BaseDataReader
+            if parameters["type"] == UploadFileType.CSV.value:
+                reader = CSVReader(parameters)
+            elif parameters["type"] == UploadFileType.EXCEL.value:
+                reader = ExcelReader(parameters)
+            elif parameters["type"] == UploadFileType.COLUMNAR.value:
+                reader = ColumnarReader(parameters)
+            else:
+                return self.response_400(message="Unexpected Invalid file type")
             UploadCommand(
                 pk,
                 parameters["table_name"],
                 parameters["file"],
                 parameters.get("schema"),
-                CSVReader(parameters),
+                reader,
             ).run()
         except ValidationError as error:
             return self.response_400(message=error.messages)
-        return self.response(200, message="OK")
-
-    @expose("/<int:pk>/excel_upload/", methods=("POST",))
-    @protect()
-    @statsd_metrics
-    @event_logger.log_this_with_context(
-        action=lambda self, *args, **kwargs: f"{self.__class__.__name__}.import_",
-        log_to_statsd=False,
-    )
-    @requires_form_data
-    def excel_upload(self, pk: int) -> Response:
-        """Upload an Excel file into a database.
-        ---
-        post:
-          summary: Upload an Excel file to a database table
-          parameters:
-          - in: path
-            schema:
-              type: integer
-            name: pk
-          requestBody:
-            required: true
-            content:
-              multipart/form-data:
-                schema:
-                  $ref: '#/components/schemas/ExcelUploadPostSchema'
-          responses:
-            200:
-              description: Excel upload response
-              content:
-                application/json:
-                  schema:
-                    type: object
-                    properties:
-                      message:
-                        type: string
-            400:
-              $ref: '#/components/responses/400'
-            401:
-              $ref: '#/components/responses/401'
-            404:
-              $ref: '#/components/responses/404'
-            422:
-              $ref: '#/components/responses/422'
-            500:
-              $ref: '#/components/responses/500'
-        """
-        try:
-            request_form = request.form.to_dict()
-            request_form["file"] = request.files.get("file")
-            parameters = ExcelUploadPostSchema().load(request_form)
-            UploadCommand(
-                pk,
-                parameters["table_name"],
-                parameters["file"],
-                parameters.get("schema"),
-                ExcelReader(parameters),
-            ).run()
-        except ValidationError as error:
-            return self.response_400(message=error.messages)
-        return self.response(200, message="OK")
+        return self.response(201, message="OK")
 
     @expose("/<int:pk>/function_names/", methods=("GET",))
     @protect()
@@ -1608,7 +1838,7 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
     @protect()
     @statsd_metrics
     @event_logger.log_this_with_context(
-        action=lambda self, *args, **kwargs: f"{self.__class__.__name__}" f".available",
+        action=lambda self, *args, **kwargs: f"{self.__class__.__name__}.available",
         log_to_statsd=False,
     )
     def available(self) -> Response:
@@ -1680,6 +1910,7 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
                 "sqlalchemy_uri_placeholder": engine_spec.sqlalchemy_uri_placeholder,
                 "preferred": engine_spec.engine_name in preferred_databases,
                 "engine_information": engine_spec.get_public_information(),
+                "supports_oauth2": engine_spec.supports_oauth2,
             }
 
             if engine_spec.default_driver:
@@ -1689,12 +1920,12 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
             if (
                 hasattr(engine_spec, "parameters_json_schema")
                 and hasattr(engine_spec, "sqlalchemy_uri_placeholder")
-                and getattr(engine_spec, "default_driver") in drivers
+                and engine_spec.default_driver in drivers
             ):
                 payload["parameters"] = engine_spec.parameters_json_schema()
-                payload[
-                    "sqlalchemy_uri_placeholder"
-                ] = engine_spec.sqlalchemy_uri_placeholder
+                payload["sqlalchemy_uri_placeholder"] = (
+                    engine_spec.sqlalchemy_uri_placeholder
+                )
 
             available_databases.append(payload)
 
@@ -1774,73 +2005,6 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
         command.run()
         return self.response(200, message="OK")
 
-    @expose("/<int:pk>/ssh_tunnel/", methods=("DELETE",))
-    @protect()
-    @statsd_metrics
-    @deprecated(deprecated_in="4.0")
-    @event_logger.log_this_with_context(
-        action=lambda self, *args, **kwargs: f"{self.__class__.__name__}"
-        f".delete_ssh_tunnel",
-        log_to_statsd=False,
-    )
-    def delete_ssh_tunnel(self, pk: int) -> Response:
-        """Delete a SSH tunnel.
-        ---
-        delete:
-          summary: Delete a SSH tunnel
-          parameters:
-          - in: path
-            schema:
-              type: integer
-            name: pk
-          responses:
-            200:
-              description: SSH Tunnel deleted
-              content:
-                application/json:
-                  schema:
-                    type: object
-                    properties:
-                      message:
-                        type: string
-            401:
-              $ref: '#/components/responses/401'
-            403:
-              $ref: '#/components/responses/403'
-            404:
-              $ref: '#/components/responses/404'
-            422:
-              $ref: '#/components/responses/422'
-            500:
-              $ref: '#/components/responses/500'
-        """
-
-        database = DatabaseDAO.find_by_id(pk)
-        if not database:
-            return self.response_404()
-        try:
-            existing_ssh_tunnel_model = database.ssh_tunnels
-            if existing_ssh_tunnel_model:
-                DeleteSSHTunnelCommand(existing_ssh_tunnel_model.id).run()
-                return self.response(200, message="OK")
-            return self.response_404()
-        except SSHTunnelDeleteFailedError as ex:
-            logger.error(
-                "Error deleting SSH Tunnel %s: %s",
-                self.__class__.__name__,
-                str(ex),
-                exc_info=True,
-            )
-            return self.response_422(message=str(ex))
-        except SSHTunnelingNotEnabledError as ex:
-            logger.error(
-                "Error deleting SSH Tunnel %s: %s",
-                self.__class__.__name__,
-                str(ex),
-                exc_info=True,
-            )
-            return self.response_400(message=str(ex))
-
     @expose("/<int:pk>/schemas_access_for_file_upload/")
     @protect()
     @safe
@@ -1873,7 +2037,7 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
               $ref: '#/components/responses/404'
             500:
               $ref: '#/components/responses/500'
-        """
+        """  # noqa: E501
         database = DatabaseDAO.find_by_id(pk)
         if not database:
             return self.response_404()
@@ -1885,6 +2049,6 @@ class DatabaseRestApi(BaseSupersetModelRestApi):
         # otherwise the database should have been filtered out
         # in CsvToDatabaseForm
         schemas_allowed_processed = security_manager.get_schemas_accessible_by_user(
-            database, schemas_allowed, True
+            database, database.get_default_catalog(), schemas_allowed, True
         )
         return self.response(200, schemas=schemas_allowed_processed)
